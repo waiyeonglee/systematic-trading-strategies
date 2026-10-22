@@ -44,3 +44,11 @@ uv remove --dev <package>
 uv run python script.py
 uv run jupyter lab
 ```
+
+### Run the tests
+
+```bash
+uv run pytest
+```
+
+Tests import from `src/` directly, so no install step is needed; `pyproject.toml` sets `pythonpath` and `testpaths`.
