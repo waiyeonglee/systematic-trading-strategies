@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date
+from datetime import timedelta
 from pathlib import Path
 
 import pandas as pd
+import yaml
 import yfinance as yf
 
 
@@ -14,8 +15,8 @@ CORE_ETFS = ["XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"]
 BENCHMARKS = ["SPY"]
 TICKERS = CORE_ETFS + BENCHMARKS
 
-DEFAULT_START_DATE = "2004-01-01"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +31,25 @@ def parse_args() -> argparse.Namespace:
         help="Output frequency: daily or Friday week-ending weekly data.",
     )
     return parser.parse_args()
+
+
+def load_date_range() -> tuple[str, str]:
+    """Load the shared inclusive data date range from config.yaml."""
+    with CONFIG_PATH.open() as file:
+        config = yaml.safe_load(file) or {}
+
+    data_config = config.get("data", {})
+    start_date = data_config.get("start_date")
+    end_date = data_config.get("end_date")
+    if not start_date or not end_date:
+        raise ValueError("config.yaml must define data.start_date and data.end_date.")
+
+    return str(start_date), str(end_date)
+
+
+def yfinance_exclusive_end_date(end_date: str) -> str:
+    """Convert an inclusive config end date to yfinance's exclusive end date."""
+    return (pd.to_datetime(end_date).date() + timedelta(days=1)).isoformat()
 
 
 def download_ticker(ticker: str, start: str, end: str) -> pd.DataFrame:
@@ -90,7 +110,8 @@ def raw_data_dir(frequency: str) -> Path:
 def main() -> None:
     """Download, transform, and save ticker-level and combined price data."""
     args = parse_args()
-    end_date = date.today().isoformat()
+    start_date, end_date = load_date_range()
+    download_end_date = yfinance_exclusive_end_date(end_date)
     output_dir = raw_data_dir(args.frequency)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -98,7 +119,7 @@ def main() -> None:
 
     for position, ticker in enumerate(TICKERS, start=1):
         print(f"[{position}/{len(TICKERS)}] Downloading {ticker}...")
-        daily_data = download_ticker(ticker, DEFAULT_START_DATE, end_date)
+        daily_data = download_ticker(ticker, start_date, download_end_date)
         output_data = (
             daily_data if args.frequency == "daily" else resample_weekly(daily_data)
         )

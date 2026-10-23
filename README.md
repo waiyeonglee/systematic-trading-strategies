@@ -45,6 +45,20 @@ uv run python script.py
 uv run jupyter lab
 ```
 
+### Fetch market data
+
+Use `src/fetch_data.py` to download sector ETF and SPY OHLCV data. The shared date range is configured in `config.yaml` and is also used by the EDA notebook's Fear & Greed Index section.
+
+```bash
+# Daily data
+uv run python src/fetch_data.py --frequency daily
+
+# Weekly Friday-ending data
+uv run python src/fetch_data.py --frequency weekly
+```
+
+Outputs are saved under `data/stocks_daily/raw/` and `data/stocks_weekly/raw/`.
+
 ### Run the tests
 
 ```bash
