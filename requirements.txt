@@ -1,0 +1,7 @@
+ipykernel
+ipython
+matplotlib
+numpy
+pandas
+seaborn
+yfinance

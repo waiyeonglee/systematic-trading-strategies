@@ -1,3 +1,12 @@
 .venv/
 __pycache__/
 .ipynb_checkpoints/
+
+# Generated data outputs; keep folder placeholders only.
+data/stocks_daily/raw/*
+!data/stocks_daily/raw/.gitkeep
+data/stocks_weekly/raw/*
+!data/stocks_weekly/raw/.gitkeep
+
+__pycache__/
+*.py[cod]
