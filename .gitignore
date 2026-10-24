@@ -1,4 +1,5 @@
 .venv/
+.vscode/
 __pycache__/
 .ipynb_checkpoints/
 
@@ -7,6 +8,9 @@ data/stocks_daily/raw/*
 !data/stocks_daily/raw/.gitkeep
 data/stocks_weekly/raw/*
 !data/stocks_weekly/raw/.gitkeep
+
+# Generated feature tables are local analysis outputs.
+reports/feature_selection/*/features.csv
 
 __pycache__/
 *.py[cod]

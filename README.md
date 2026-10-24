@@ -59,6 +59,50 @@ uv run python src/fetch_data.py --frequency weekly
 
 Outputs are saved under `data/stocks_daily/raw/` and `data/stocks_weekly/raw/`.
 
+## Daily and weekly technical features
+
+The feature analysis reads daily OHLCV files for daily features and Friday-ending
+weekly OHLCV files for weekly features. `fetch_data.py --frequency weekly` creates
+the weekly bars by resampling the daily source data (Open=first, High=max, Low=min,
+Close=last, Volume=sum). Every indicator lookback is measured in bars, so a 14-bar
+RSI means 14 daily observations in the daily dataset and 14 weekly observations in
+the weekly dataset. Volatility is annualized with 252 or 52 periods per year,
+respectively. TA-Lib computes RSI, MACD, Bollinger Bands, moving averages, rolling
+standard deviation, and rolling highs. Returns/momentum and volume changes are
+calculated from bar-to-bar changes. Return features are consistently named for their
+lookback: 1/2/3/4/12/26/52 bars. Other features include moving-average ratios,
+12/26-bar volatility, 12-bar drawdown, RSI-14, MACD, Bollinger position, four-bar
+volume change, the Fear & Greed Index (0–100), and SPY's one-bar return. Daily
+features use the SPY daily return for that date; weekly features use the SPY return
+for that weekly bar. SPY values are aligned by date without using a later bar.
+Sentiment is aligned by carrying its latest dated observation forward to each price
+bar; no future sentiment values are backfilled. The index CSV is read from
+`data/fear_and_greed_index/fear-greed.csv` by default.
+
+The feature script only builds a feature DataFrame and plots a Pearson correlation
+matrix. It does not fit models or select a subset of features. Initial rows with
+insufficient lookback history are retained with missing feature values.
+
+Run from the project root:
+
+```bash
+uv run python src/fetch_data.py --frequency daily
+uv run python src/fetch_data.py --frequency weekly
+uv run python src/feature_selection.py
+```
+
+Outputs are written separately to `reports/feature_selection/daily/` and
+`reports/feature_selection/weekly/`:
+
+- `features.csv` contains one row per date and sector ETF, with technical features
+  plus `label_forward_return_1bar`, the next bar's close-to-close return. The label
+  is not included in `FEATURES`, so it remains separate from the predictor set. Its
+  final value per ticker is missing because there is no following bar.
+- `feature_label_correlation.csv` and `.png` contain the feature-plus-label
+  correlation matrix and its heatmap, calculated across all dates with available
+  labels for exploratory analysis. Use the separate chronological split function
+  for model training, feature selection, and out-of-sample evaluation.
+
 ### Run the tests
 
 ```bash
