@@ -16,8 +16,8 @@ saves figures to ./figures/.
 import numpy as np
 import pandas as pd
 
-from train import PipelineConfig, gate_sweep, make_labels, run_pipeline
-from evaluate import evaluate_all, plot_turnover_vs_gate
+from src.train_models import PipelineConfig, gate_sweep, make_labels, run_pipeline
+from src.evaluate_models import evaluate_all, plot_turnover_vs_gate
 
 TICKERS = ["XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"]
 

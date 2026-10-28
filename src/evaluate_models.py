@@ -268,32 +268,54 @@ def forecast_metrics(preds: pd.DataFrame) -> dict:
 # --------------------------------------------------------------------------------------
 # 4. Plots (each returns the Figure and saves ./figures/<name>.png)
 # --------------------------------------------------------------------------------------
+def set_figure_dir(path: str | Path) -> Path:
+    """Point all figure output at a run-specific folder, e.g. figures/<run_tag>/, and create it.
+
+    Input  : path — folder to write PNGs into
+    Output : the same Path
+
+    Test
+    ----
+        >>> set_figure_dir("figures/weekly_roll2y_g0.00_2025"); sort(glob("figures/*/*.png"))
+    """
+    global FIG_DIR
+    FIG_DIR = Path(path)
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    return FIG_DIR
+
+
 def _save(fig, name):
     """Apply tight layout and save fig to FIG_DIR/<name>.png (creates the folder).
 
     Input  : fig — matplotlib Figure; name — str file stem, e.g. "drawdown"
     Output : the same Figure
     """
-    FIG_DIR.mkdir(exist_ok=True)
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     fig.savefig(FIG_DIR / f"{name}.png", dpi=150)
     return fig
 
 
-def plot_cumulative(series: dict[str, pd.Series], title="Cumulative net return (test)"):
+def save_figure(fig, name: str):
+    """Save a figure into the current figure folder set by set_figure_dir."""
+    return _save(fig, name)
+
+
+def plot_cumulative(series: dict[str, pd.Series], title="Cumulative net return (test)",
+                    name: str = "cumulative_returns"):
     """Growth of $1 for each strategy / benchmark on one chart.
 
-    Inputs : series — dict[str, returns series]; title — str
-    Output : Figure, saved as figures/cumulative_returns.png
+    Inputs : series — dict[str, returns series]; title — str; name — output file stem
+    Output : Figure, saved as FIG_DIR/<name>.png
 
     Test   : >>> plot_cumulative({"A": r, "B": r * 0.5})
     """
     fig, ax = plt.subplots(figsize=(10, 5))
-    for name, r in series.items():
-        ax.plot((1 + r).cumprod(), label=name)
+    for label, r in series.items():
+        ax.plot((1 + r).cumprod(), label=label)
     ax.set(title=title, ylabel="Growth of $1")
     ax.legend(); ax.grid(alpha=0.3)
-    return _save(fig, "cumulative_returns")
+    return _save(fig, name)
 
 
 def plot_sharpe_by_model(val_table: pd.DataFrame):
@@ -422,7 +444,8 @@ def plot_coefficients(coefs: pd.Series):
 # 5. One call to produce everything for the test set
 # --------------------------------------------------------------------------------------
 def evaluate_all(results: dict, spy_close: pd.Series, ppy: int = 252,
-                 trends_results: dict | None = None) -> dict:
+                 trends_results: dict | None = None,
+                 include_spy_benchmark: bool = True) -> dict:
     """Compute all test-set metrics and save all standard figures in one call.
 
     Inputs
@@ -432,6 +455,8 @@ def evaluate_all(results: dict, spy_close: pd.Series, ppy: int = 252,
     ppy            : periods per year (252 daily, 52 weekly)
     trends_results : optional dict from run_pipeline with Google Trends features; if given,
                      it is added to every comparison and plot_tech_vs_trends is drawn
+    include_spy_benchmark : bool — if False, SPY buy-and-hold is excluded from the comparison
+                     table and return plots; it is still used as the CAPM market factor
 
     Output
     ------
@@ -453,7 +478,9 @@ def evaluate_all(results: dict, spy_close: pd.Series, ppy: int = 252,
     spy = spy_buy_and_hold(spy_close, port.index)
     ew = equal_weight_universe(preds).reindex(port.index)
     name = f"{results['best_spec'].name} (net)"
-    series = {name: port["net_ret"], "SPY B&H": spy, "Equal-weight": ew}
+    series = {name: port["net_ret"], "Equal-weight": ew}
+    if include_spy_benchmark:
+        series["SPY B&H"] = spy
     if trends_results is not None:
         series["+ Google Trends (net)"] = trends_results["test_portfolio"]["net_ret"]
 
