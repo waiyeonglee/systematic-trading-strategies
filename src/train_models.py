@@ -191,7 +191,7 @@ def walk_forward_predict(
     spec: ModelSpec,
     refit_every: str = "QE",
     window: int | None = None,
-    embargo: int = 1,
+    embargo: int = 2,
 ) -> pd.DataFrame:
     """Predict eval_df out-of-sample by refitting the model block by block.
 
@@ -211,7 +211,7 @@ def walk_forward_predict(
     spec         : ModelSpec — which model to fit
     refit_every  : str — pandas offset alias for block length: "ME" month, "QE" quarter, "YE" year
     window       : int | None — rolling training window in number of dates; None = use all past
-    embargo      : int — number of most recent dates dropped before each refit (default 1 for
+    embargo      : int — number of most recent dates dropped before each refit (default 2 for
                          the close[t+1]-to-close[t+2] label horizon)
 
     Output
