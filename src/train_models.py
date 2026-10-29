@@ -14,9 +14,9 @@ pandas DataFrame, MultiIndex (date, ticker), one row per asset per date:
     index level "date"   : pd.Timestamp — decision date t (close of t)
     index level "ticker" : str          — e.g. "XLK"
     <feature columns>    : float        — known at the close of t (no future data)
-    "target"             : int/float 0/1 — 1 if the asset's return t -> t+1 beats that
-                                           day's cross-sectional median, else 0
-    "fwd_ret"            : float        — the asset's simple return t -> t+1 (e.g. 0.0042)
+    "target"             : int/float 0/1 — 1 if the asset's close[t+1] -> close[t+2] return
+                                           beats that day's cross-sectional median, else 0
+    "fwd_ret"            : float        — close[t+2] / close[t+1] - 1
 
     Example:
                             mom_20   vol_20  target   fwd_ret
@@ -24,7 +24,8 @@ pandas DataFrame, MultiIndex (date, ticker), one row per asset per date:
         2015-01-02 XLB      0.0123   0.0110     1.0    0.0051
                    XLE     -0.0310   0.0185     0.0   -0.0120
 
-Timing convention: weights chosen at the close of t earn fwd_ret at t (trade at the same close).
+Timing convention: features are observed at close t, execution is at close t+1, and
+fwd_ret is earned from close t+1 through close t+2. Rows and returns are indexed by t.
 
 Quick test
 ----------
@@ -54,9 +55,9 @@ PERIODS_PER_YEAR = {"daily": 252, "weekly": 52}
 def make_labels(prices: pd.DataFrame) -> pd.DataFrame:
     """Build the label columns ("fwd_ret", "target") from a table of prices.
 
-    For each date t and ticker: fwd_ret = price[t+1] / price[t] - 1, and target = 1 if that
-    return is above the median fwd_ret across all tickers on date t. The last date has no
-    t+1 price, so it is dropped.
+    For each signal date t and ticker, fwd_ret = price[t+2] / price[t+1] - 1.
+    target is 1 if that return is above the cross-sectional median on date t.
+    The last two dates have no complete return, so they are dropped.
 
     Input
     -----
@@ -70,19 +71,18 @@ def make_labels(prices: pd.DataFrame) -> pd.DataFrame:
     Output
     ------
     pd.DataFrame, MultiIndex (date, ticker), columns ["fwd_ret", "target"]
-        len = (n_dates - 1) * n_tickers (rows with missing prices are dropped)
+        len = (n_dates - 2) * n_tickers (assuming no missing prices)
 
     Test
     ----
-        >>> p = pd.DataFrame({"A": [100, 101, 102], "B": [100, 99, 103]},
-        ...                  index=pd.bdate_range("2020-01-01", periods=3))
+        >>> p = pd.DataFrame({"A": [100, 101, 102, 103], "B": [100, 99, 103, 104]},
+        ...                  index=pd.bdate_range("2020-01-01", periods=4))
         >>> make_labels(p)
-        # 2020-01-01: A fwd_ret 0.01, target 1;  B fwd_ret -0.01, target 0
-        # (with 2 tickers the median is their mean, so exactly one is 1)
+        # 2020-01-01: A fwd_ret = 102/101 - 1; B fwd_ret = 103/99 - 1
     """
-    fwd_ret = prices.pct_change().shift(-1)                      # return from t to t+1
+    fwd_ret = prices.shift(-2).div(prices.shift(-1)).sub(1)
     beats_median = fwd_ret.gt(fwd_ret.median(axis=1), axis=0).astype(float)
-    beats_median[fwd_ret.isna()] = np.nan                        # last row has no label
+    beats_median[fwd_ret.isna()] = np.nan                        # final two dates lack a full return
     out = pd.concat({"fwd_ret": fwd_ret.stack(future_stack=True),
                      "target": beats_median.stack(future_stack=True)}, axis=1)
     out.index.names = ["date", "ticker"]
@@ -191,13 +191,13 @@ def walk_forward_predict(
     spec: ModelSpec,
     refit_every: str = "QE",
     window: int | None = None,
-    embargo: int = 1,
+    embargo: int = 2,
 ) -> pd.DataFrame:
     """Predict eval_df out-of-sample by refitting the model block by block.
 
     eval_df is cut into blocks (e.g. calendar quarters). For each block:
       1. training rows = all rows of history + earlier eval rows dated BEFORE the block start,
-         minus the last `embargo` dates (their labels use prices from inside the block);
+         minus the last `embargo` dates (their labels may use prices from inside the block);
          if `window` is set, keep only the most recent `window` dates;
       2. fit a fresh model from `spec`;
       3. predict P(target = 1) for every row in the block.
@@ -211,7 +211,8 @@ def walk_forward_predict(
     spec         : ModelSpec — which model to fit
     refit_every  : str — pandas offset alias for block length: "ME" month, "QE" quarter, "YE" year
     window       : int | None — rolling training window in number of dates; None = use all past
-    embargo      : int — number of most recent dates dropped before each refit (1 for next-day labels)
+    embargo      : int — number of most recent dates dropped before each refit (default 2 for
+                         the close[t+1]-to-close[t+2] label horizon)
 
     Output
     ------
@@ -270,7 +271,8 @@ def build_portfolio(
          swap them. gate = 0 means plain "hold the top k".
       3. Weight = 1/k for each holding, 0 otherwise.
       4. turnover = sum |w_t - w_{t-1}|; cost = turnover * cost_bps / 10,000.
-      5. gross_ret = sum(w_t * fwd_ret_t); net_ret = gross_ret - cost.
+      5. gross_ret = sum(w_t * fwd_ret_t), where fwd_ret_t = close[t+2] / close[t+1] - 1;
+         net_ret = gross_ret - cost.
     The first date counts as a full entry (turnover = 1). Weights are reset to target each
     period (intra-period drift is ignored).
 

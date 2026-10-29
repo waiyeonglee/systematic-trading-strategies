@@ -103,6 +103,126 @@ Outputs are written separately to `reports/feature_selection/daily/` and
   labels for exploratory analysis. Use the separate chronological split function
   for model training, feature selection, and out-of-sample evaluation.
 
+## Train and backtest on real data
+
+`main.py` runs the whole model pipeline on the real sector-ETF data: it builds the
+19 features above, joins the cross-sectional next-bar label, and backtests a single
+penalised logistic regression (`lasso_C1.0`, fixed in `GRID`) that is refitted every
+week over a rolling window (default two years: 504 daily bars or 104 weekly bars)
+with a one-bar embargo. The months before the test period form the validation
+window, which only drives the gate sweep. All randomness is seeded with `SEED`
+(5205), so repeated runs give identical output.
+
+### Setup
+
+```bash
+uv sync                        # create the environment from pyproject.toml
+uv run pytest                  # optional: confirm the environment works (29 tests)
+```
+
+### Options
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--frequency {daily,weekly}` | `weekly` | Bar frequency; must match a fetched `data/stocks_<freq>/raw/` folder |
+| `--test-start` | `2025-01-01` | First date of the reported (out-of-sample) period |
+| `--test-end` | `2025-12-31` | Last date of the reported period |
+| `--window-years` | `2.0` | Rolling training window length, in years of bars |
+| `--val-months` | `24` | Validation window before the test period, in months |
+| `--compare-refit` | off | Also compare every-bar refitting against weekly refitting |
+
+### Sample runs
+
+Fetch the data once first — it needs network access and writes the CSVs everyone
+else will read:
+
+```bash
+uv run python src/fetch_data.py --frequency weekly
+uv run python src/fetch_data.py --frequency daily
+```
+
+Then pick a config. Each command below is self-contained:
+
+```bash
+# 1. Quick start: weekly bars, one test year (~1-2 min)
+uv run python main.py --frequency weekly
+
+# 2. Daily bars instead of weekly (same splits, ~5 min)
+uv run python main.py --frequency daily
+
+# 3. Six-year test period, weekly bars (~3 min)
+uv run python main.py --frequency weekly --test-start 2020-01-01
+
+# 4. Four-year test period, weekly bars (~2 min)
+uv run python main.py --frequency weekly --test-start 2022-01-01
+
+# 5. Custom test window
+uv run python main.py --frequency weekly --test-start 2016-01-01 --test-end 2019-12-31
+
+# 6. Shorter training window and validation window (~3 min)
+uv run python main.py --frequency weekly --test-start 2020-01-01 \
+    --window-years 1 --val-months 6
+
+# 7. Longer training window (~3 min)
+uv run python main.py --frequency weekly --test-start 2020-01-01 --window-years 3
+
+# 8. Refit cadence study: every-bar vs weekly refitting (~5-10 min, daily only)
+uv run python main.py --frequency daily --compare-refit
+```
+
+Do not shorten `--val-months` below ~24 if you plan to tune the gate: a 6-month
+validation window has a Sharpe standard error above 1.0, so the sweep just reports
+noise.
+
+The panel starts in **2011** (the Fear & Greed index's first date), so keep
+`--test-start` at **2016 or later** — with 24 months of validation, earlier starts
+leave fewer training bars than the rolling window needs (2015 gives exactly 104, so
+the first refits lose one bar to the embargo; 2014 gives only 52 and triggers the
+`WARNING` that `main.py` prints).
+
+### Outputs
+
+Each run prints, in order: the split sizes, the validation ranking, the validation
+gate sweep, the test comparison against equal-weight, the per-gate test comparison,
+the SPY reference table, gross-vs-net strategy stats, forecast metrics (AUC, rank
+IC) and CAPM alpha/beta.
+
+What to expect: pooled AUC lands around **0.49–0.51** and rank IC near zero, so the
+selected portfolio roughly tracks equal-weight before costs and trails it after
+costs. That is the current finding, not a broken setup — treat a large AUC (>0.55)
+as a leak to investigate.
+
+Figures go to their own `figures/<run_tag>/` folder so configurations never
+overwrite each other:
+
+```
+<frequency>_roll<window>y_val<months>m_<refit>_<model>_g<gate>_<test years>
+
+figures/weekly_roll2y_val24m_wkrefit_lassoC1.0_g0.00_2020-2025/
+    cumulative_returns.png            # gates vs equal-weight
+    cumulative_returns_vs_spy.png     # gates vs equal-weight vs SPY
+    drawdown.png
+    gross_vs_net.png
+    turnover_vs_gate.png
+    sharpe_by_model.png
+    sharpe_by_period.png
+    coefficients.png
+    refit_cadence.png                 # only with --compare-refit
+```
+
+Runs that already exist, for reference while you compare results:
+
+```
+figures/weekly_roll2y_val24m_wkrefit_lassoC1.0_g0.00_2020-2025
+figures/weekly_roll2y_val24m_wkrefit_lassoC1.0_g0.00_2022-2025
+figures/weekly_roll2y_val24m_wkrefit_lassoC1.0_g0.00_2025-2025
+figures/weekly_roll1y_val6m_wkrefit_lassoC1.0_g0.00_2020-2025
+figures/daily_roll2y_val24m_wkrefit_lassoC1.0_g0.00_2025-2025
+```
+
+Re-running the same command overwrites that folder; a different config creates a
+new one.
+
 ### Run the tests
 
 ```bash

@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.13"
 
 [[package]]
@@ -1498,8 +1498,8 @@ requires-dist = [
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "scikit-learn", specifier = "==1.9.1" },
     { name = "scipy", specifier = "==1.18.1" },
-    { name = "seaborn" },
-    { name = "ta-lib", specifier = ">=0.8.2" },
+    { name = "seaborn", specifier = "==0.13.2" },
+    { name = "ta-lib", specifier = "==0.8.2" },
     { name = "tqdm", specifier = "==4.70.1" },
     { name = "yfinance", specifier = "==1.7.0" },
 ]
