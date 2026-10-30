@@ -16,7 +16,7 @@ validation:
   test_start: "2024-01-01"
   test_end: "2025-12-31"
   window_train: "5y"             # rolling training window: 5y, 18m, 2y 3m 4w
-  window_val: "3y"               # validation window immediately before test_start
+  window_val: "2y"               # validation window immediately before test_start
   refit_every: "ME"              # D | W-FRI | ME | QE
 
 # `mode` picks which block below is used: "single" tests one specification,
@@ -24,8 +24,9 @@ validation:
 model:
   mode: "single"
   single:
-    family: "lasso"              # ridge | lasso | enet (penalty follows from the family)
-    alpha: 0.9
+    family: "enet"              # ridge | lasso | enet (penalty follows from the family)
+    alpha: 1e-4
+    l1_ratio: 0.5
   selection:
     - {family: "ridge", alpha: [1, 10, 100, 1000]}
     - {family: "lasso", alpha: [0.0001, 0.001, 0.01, 0.1, 0.9]}
@@ -34,16 +35,16 @@ model:
 # `strategy` picks which block below is used. To try another trading rule, add a
 # block here and the matching entry in portfolio.STRATEGIES.
 portfolio:
-  strategy: "top_k"              # top_k | forecast_vol_scaled
+  strategy: "both"               # both | top_k | forecast_vol_scaled
   initial_capital_usd: 100000.0  # simulated account size the broker minimums apply to
   top_k:                         # equal weight across the k best predicted returns
     k: 5
-    gate: 0.0                    # predicted-return gap needed to swap a holding
+    gate: 0.001                  # predicted-return gap needed to swap a holding
     cost_bps: 5.0                # one-way cost per unit of turnover
-    gate_sweep: [0.0, 0.0005, 0.001, 0.002, 0.005]
+    gate_sweep: [0.0, 0.001, 0.002, 0.005]
   forecast_vol_scaled:           # predicted return / forecast volatility, long and short
     vol_window: 60               # bars of past predictions in the volatility window
     vol_min_periods: 20          # past predictions required before an asset is tradable
-    rebalance: "monthly"         # monthly (first bar of the month) | daily
+    rebalance: "weekly"          # daily | weekly | monthly
     broker: "moomoo"             # moomoo | ibkr
     cost_bps: 5.0                # extra proportional cost on every executed order

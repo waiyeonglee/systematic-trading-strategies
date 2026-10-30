@@ -62,16 +62,29 @@ def run_features(settings) -> None:
 
 
 def portfolio_parameters(settings) -> dict:
-    """The configured strategy and its resolved settings, as recorded in ``run_config.yaml``."""
+    """The configured strategies and their resolved settings, as recorded in ``run_config.yaml``."""
     parameters = {"strategy": settings.strategy,
                   "initial_capital_usd": settings.initial_capital_usd}
-    if settings.strategy == "forecast_vol_scaled":
+    if settings.strategy in ("top_k", "both"):
+        parameters["top_k"] = {"k": settings.top_k, "gate": settings.gate,
+                               "cost_bps": settings.cost_bps,
+                               "gate_sweep": list(settings.gates)}
+    if settings.strategy in ("forecast_vol_scaled", "both"):
         parameters["forecast_vol_scaled"] = asdict(settings.forecast_vol)
-    else:
-        parameters.update({"k": settings.top_k, "gate": settings.gate,
-                           "cost_bps": settings.cost_bps,
-                           "gate_sweep": list(settings.gates)})
     return parameters
+
+
+def portfolio_description(settings) -> str:
+    """One line naming each strategy that will trade, with its key parameters."""
+    parts = []
+    if settings.strategy in ("top_k", "both"):
+        parts.append(f"top_k(k={settings.top_k}, gate={settings.gate:g}, "
+                     f"cost={settings.cost_bps:g}bps)")
+    if settings.strategy in ("forecast_vol_scaled", "both"):
+        params = settings.forecast_vol
+        parts.append(f"forecast_vol_scaled(vol_window={params.vol_window}, "
+                     f"{params.rebalance}, {params.broker}, cost={params.cost_bps:g}bps)")
+    return " + ".join(parts)
 
 
 def run_backtest(settings) -> None:
@@ -101,7 +114,7 @@ def run_backtest(settings) -> None:
           f"window_val {settings.window_val}, refit {settings.refit_every}")
     print(f"  model [{settings.model_mode}]: {grid[0].name}"
           + (f" + {len(grid) - 1} more" if len(grid) > 1 else ""))
-    print(f"  portfolio [{settings.strategy}]: {settings.portfolio_slug()}")
+    print(f"  portfolio [{settings.strategy}]: {portfolio_description(settings)}")
     print(f"  results -> {results_dir.relative_to(PROJECT_ROOT)}")
 
     save_parameters({
@@ -131,7 +144,7 @@ def run_backtest(settings) -> None:
                          seed=settings.seed)
     results = run_pipeline(train, val, test, feature_cols, cfg)
 
-    if settings.strategy == "top_k":
+    if settings.strategy in ("top_k", "both"):
         validation_preds = results["val_preds"][results["best_spec"].name]
         sweep = gate_sweep(validation_preds, settings.gates, settings.top_k, settings.cost_bps)
         plot_turnover_vs_gate(sweep, results_dir, ppy)
@@ -147,12 +160,13 @@ def run_backtest(settings) -> None:
 
     report = evaluate_all(results, benchmark_close, ppy, results_dir)
 
-    if settings.strategy == "top_k":
+    if settings.strategy in ("top_k", "both"):
         test_sweep = gate_sweep(results["test_preds"], settings.gates,
                                 settings.top_k, settings.cost_bps)
         plot_cumulative_by_gate(
             test_sweep,
-            equal_weight_universe(results["test_preds"]).reindex(results["test_portfolio"].index),
+            equal_weight_universe(results["test_preds"]).reindex(
+                next(iter(results["test_portfolios"].values())).index),
             results_dir, "Cumulative net return by gate (test)",
             name="cumulative_returns_by_gate_test")
         save_table(comparison_table({f"gate={gate:g}": port["net_ret"]
@@ -165,10 +179,12 @@ def run_backtest(settings) -> None:
     print("\n== Validation ranking (top 5) ==\n", results["val_table"].head(5).to_string(index=False))
     print("\n== Test comparison (vs SPY) ==\n", report["comparison"])
     print("\n== Test comparison (ex-SPY) ==\n", report["comparison_no_spy"])
-    print("\n== Strategy (gross vs net) ==\n", report["strategy"])
+    print("\n== Strategy (gross vs net) ==")
+    for label, frame in report["strategy"].items():
+        print(f"\n-- {label} --\n{frame}")
     print("\n== Forecast ==\n", pd.Series(report["forecast"]))
     print("\n== OOS R2 by year ==\n", report["r2_by_year"])
-    print("\n== CAPM ==\n", pd.Series(report["capm"]))
+    print("\n== CAPM ==\n", report["capm"])
 
     print(f"\nresults saved to {results_dir}")
 

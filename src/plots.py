@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -72,7 +73,8 @@ def plot_cumulative_by_gate(sweep: dict[float, pd.DataFrame], equal_weight: pd.S
     return save_figure(fig, results_dir, name)
 
 
-def plot_gross_vs_net(port: pd.DataFrame, results_dir: Path) -> plt.Figure:
+def plot_gross_vs_net(port: pd.DataFrame, results_dir: Path,
+                      name: str = "gross_vs_net") -> plt.Figure:
     """Gross versus net growth of $1, plus cumulative costs in basis points."""
     fig, (top, bottom) = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
     top.plot((1 + port["gross_ret"]).cumprod(), label="Gross")
@@ -83,7 +85,38 @@ def plot_gross_vs_net(port: pd.DataFrame, results_dir: Path) -> plt.Figure:
     bottom.set(title="Cumulative transaction costs", ylabel="bps")
     for ax in (top, bottom):
         ax.grid(alpha=0.3)
-    return save_figure(fig, results_dir, "gross_vs_net")
+    return save_figure(fig, results_dir, name)
+
+
+def plot_trading_timeline(portfolios: dict[str, pd.DataFrame], results_dir: Path,
+                          title: str = "Cumulative net return with trading dates",
+                          name: str = "cumulative_returns_with_trades") -> plt.Figure:
+    """Growth of $1 per strategy, with a marker on every bar the book was traded.
+
+    Works for any strategy because it reads the ``turnover`` column: a bar counts as traded
+    when turnover is above zero, which is a rebalance for ``forecast_vol_scaled`` and a
+    holding swap (or the first build) for ``top_k``.
+
+    Args:
+        portfolios: Label -> portfolio frame with ``net_ret`` and ``turnover``.
+        results_dir: Run folder for the PNG.
+        title: Figure title.
+        name: File stem.
+    """
+    fig, (ax, rug) = plt.subplots(2, 1, figsize=(11, 6), sharex=True,
+                                  gridspec_kw={"height_ratios": [6, 1]})
+    for (label, port), color in zip(portfolios.items(), itertools.cycle(["C0", "C3", "C2"])):
+        traded = port.index[port["turnover"] > 0]
+        ax.plot((1 + port["net_ret"]).cumprod(), color=color,
+                label=f"{label}: {len(traded)} trades")
+        ax.vlines(traded, 0.0, 1.0, transform=ax.get_xaxis_transform(),
+                  color=color, alpha=0.12, linewidth=0.8)
+        rug.vlines(traded, 0.2, 0.8, color=color, linewidth=1.2)
+    ax.set(title=title, ylabel="Growth of $1")
+    ax.legend()
+    ax.grid(alpha=0.3)
+    rug.set(yticks=[], ylabel="trades")
+    return save_figure(fig, results_dir, name)
 
 
 def plot_turnover_vs_gate(sweep: dict[float, pd.DataFrame], results_dir: Path,

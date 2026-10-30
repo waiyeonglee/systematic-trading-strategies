@@ -14,8 +14,8 @@ from metrics import (capm_alpha, comparison_table, equal_weight_universe, foreca
 from models import ModelSpec, default_grid, model_family, walk_forward_predict
 from plots import (plot_coefficients, plot_cumulative, plot_drawdown, plot_gross_vs_net,
                    plot_oos_r2, plot_period_sharpe, plot_sharpe_by_model,
-                   plot_tech_vs_trends)
-from portfolio import ForecastVolParams, build_positions
+                   plot_tech_vs_trends, plot_trading_timeline)
+from portfolio import ForecastVolParams, build_all_positions, build_positions
 from utils.artifacts import save_nested, save_table
 from utils.checks import require_columns
 from utils.config import DEFAULT_SEED, duration_slug, periods_per_year
@@ -33,7 +33,9 @@ def run_tag(settings, grid: list[ModelSpec]) -> str:
 
     Returns:
         A filesystem-safe tag such as
-        ``daily_fg_roll5y_val3y_mrefit_lasso_a0.0001_topk5_g0_c5_2024-2025``.
+        ``daily_fg_roll5y_val3y_mrefit_lasso_a0.0001_2024-2025``. Portfolio settings are not
+        part of the tag: they change the results, but they are recorded in
+        ``run_config.yaml`` inside the folder instead.
     """
     model = grid[0].name if len(grid) == 1 else f"grid{len(grid)}"
     return (
@@ -42,7 +44,7 @@ def run_tag(settings, grid: list[ModelSpec]) -> str:
         f"roll{duration_slug(settings.window_train)}_"
         f"val{duration_slug(settings.window_val)}_"
         f"{REFIT_SLUGS.get(settings.refit_every, settings.refit_every)}_"
-        f"{model}_{settings.portfolio_slug()}_"
+        f"{model}_"
         f"{pd.Timestamp(settings.test_start):%Y}-{pd.Timestamp(settings.test_end):%Y}"
     )
 
@@ -84,6 +86,8 @@ def select_model(train: pd.DataFrame, val: pd.DataFrame, feature_cols: list[str]
 
     Models whose predictions are identical across tickers on every date (all coefficients
     shrunk to zero) are flagged as degenerate and excluded, because their picks are arbitrary.
+    The scores use the first configured portfolio strategy, so ``strategy: both`` ranks on
+    ``top_k`` and keeps a single objective for model selection.
 
     Args:
         train: Panel before the validation window.
@@ -149,7 +153,8 @@ def run_pipeline(train: pd.DataFrame, val: pd.DataFrame, test: pd.DataFrame,
 
     Returns:
         Dict with ``config``, ``best_spec``, ``val_table``, ``val_preds``,
-        ``val_portfolios``, ``test_preds``, ``test_portfolio`` and ``coefficients``.
+        ``val_portfolios``, ``test_preds``, ``test_portfolios`` (one frame per configured
+        strategy) and ``coefficients``.
 
     Raises:
         AssertionError: if a panel lacks required columns or the panels overlap in time.
@@ -171,7 +176,7 @@ def run_pipeline(train: pd.DataFrame, val: pd.DataFrame, test: pd.DataFrame,
     history = pd.concat([train, val])
     test_preds = walk_forward_predict(history, test, feature_cols, best,
                                       cfg.refit_every, cfg.window_train, seed=cfg.seed)
-    test_portfolio = build_positions(test_preds, cfg)
+    test_portfolios = build_all_positions(test_preds, cfg)
 
     final_model = best.build(cfg.seed).fit(history[feature_cols].values, history[TARGET_COL].values)
     coefficients = pd.Series(final_model.named_steps["reg"].coef_.ravel(), index=feature_cols)
@@ -183,7 +188,7 @@ def run_pipeline(train: pd.DataFrame, val: pd.DataFrame, test: pd.DataFrame,
         "val_preds": val_preds,
         "val_portfolios": val_portfolios,
         "test_preds": test_preds,
-        "test_portfolio": test_portfolio,
+        "test_portfolios": test_portfolios,
         "coefficients": coefficients,
     }
 
@@ -194,7 +199,9 @@ def evaluate_all(results: dict, benchmark_close: pd.Series, ppy: int, results_di
     """Compute the test-set metrics, then write the figures and tables for the run.
 
     Every comparison is written twice: once including SPY buy-and-hold and once with only
-    the strategy and the equal-weight benchmark.
+    the strategies and the equal-weight benchmark. When ``portfolio.strategy`` is ``"both"``
+    both rules are scored and compared in the same tables and figures, and the per-strategy
+    outputs get a ``_<strategy>`` suffix so they cannot overwrite each other.
 
     Args:
         results: Output of :func:`run_pipeline`.
@@ -205,29 +212,38 @@ def evaluate_all(results: dict, benchmark_close: pd.Series, ppy: int, results_di
         target_col: Label the model was trained on.
 
     Returns:
-        Dict with ``comparison``, ``comparison_no_spy``, ``strategy``, ``forecast``,
-        ``r2_by_year``, ``capm`` and ``by_year``.
+        Dict with ``comparison``, ``comparison_no_spy``, ``strategy`` (one report per
+        strategy), ``forecast``, ``r2_by_year``, ``capm`` and ``by_year``.
     """
-    portfolio, preds = results["test_portfolio"], results["test_preds"]
-    model_name = f"{results['best_spec'].name} (net)"
-    benchmark = spy_buy_and_hold(benchmark_close, portfolio.index)
-    equal_weight = equal_weight_universe(preds).reindex(portfolio.index)
+    portfolios, preds = results["test_portfolios"], results["test_preds"]
+    multiple = len(portfolios) > 1
+    dates = next(iter(portfolios.values())).index
+    benchmark = spy_buy_and_hold(benchmark_close, dates)
+    equal_weight = equal_weight_universe(preds).reindex(dates)
 
-    without_spy = {model_name: portfolio["net_ret"], "Equal-weight": equal_weight}
-    with_spy = {model_name: portfolio["net_ret"], "SPY B&H": benchmark,
-                "Equal-weight": equal_weight}
+    labels = {strategy: (f"{results['best_spec'].name} {strategy}" if multiple
+                         else results["best_spec"].name)
+              for strategy in portfolios}
+
+    without_spy = {f"{label} (net)": portfolios[strategy]["net_ret"]
+                   for strategy, label in labels.items()}
+    without_spy["Equal-weight"] = equal_weight
+    with_spy = dict(without_spy)
+    with_spy["SPY B&H"] = benchmark
     if trends_results is not None:
-        trends = trends_results["test_portfolio"]["net_ret"]
+        trends = next(iter(trends_results["test_portfolios"].values()))["net_ret"]
         without_spy["+ Google Trends (net)"] = trends
         with_spy["+ Google Trends (net)"] = trends
 
     report = {
         "comparison": comparison_table(with_spy, ppy),
         "comparison_no_spy": comparison_table(without_spy, ppy),
-        "strategy": strategy_report(portfolio, ppy),
+        "strategy": {strategy: strategy_report(portfolio, ppy)
+                     for strategy, portfolio in portfolios.items()},
         "forecast": forecast_metrics(preds, target_col),
         "r2_by_year": oos_r2_by_period(preds, target_col),
-        "capm": capm_alpha(portfolio["net_ret"], benchmark, ppy),
+        "capm": pd.DataFrame({label: capm_alpha(portfolios[strategy]["net_ret"], benchmark, ppy)
+                              for strategy, label in labels.items()}).T,
         "by_year": {name: period_stats(values, ppy) for name, values in with_spy.items()},
         "by_year_no_spy": {name: period_stats(values, ppy) for name, values in without_spy.items()},
     }
@@ -237,20 +253,27 @@ def evaluate_all(results: dict, benchmark_close: pd.Series, ppy: int, results_di
                     name="cumulative_returns_no_spy")
     plot_drawdown(with_spy, results_dir)
     plot_drawdown(without_spy, results_dir, name="drawdown_no_spy")
+    plot_trading_timeline({label: portfolios[strategy] for strategy, label in labels.items()},
+                          results_dir)
     plot_sharpe_by_model(results["val_table"], results_dir)
-    plot_gross_vs_net(portfolio, results_dir)
     plot_period_sharpe(report["by_year"], results_dir)
     plot_period_sharpe(report["by_year_no_spy"], results_dir, name="sharpe_by_period_no_spy")
     plot_coefficients(results["coefficients"], results_dir)
     plot_oos_r2(preds, results_dir, target_col)
+    for strategy, portfolio in portfolios.items():
+        suffix = f"_{strategy}" if multiple else ""
+        plot_gross_vs_net(portfolio, results_dir, name=f"gross_vs_net{suffix}")
     if trends_results is not None:
-        plot_tech_vs_trends(portfolio, trends_results["test_portfolio"], results_dir)
+        plot_tech_vs_trends(next(iter(portfolios.values())),
+                            next(iter(trends_results["test_portfolios"].values())), results_dir)
 
     save_table(results["val_table"], results_dir, "validation_ranking")
     save_table(results["coefficients"], results_dir, "coefficients")
     save_table(report["comparison"], results_dir, "comparison")
     save_table(report["comparison_no_spy"], results_dir, "comparison_no_spy")
-    save_table(report["strategy"], results_dir, "strategy")
+    for strategy, strategy_frame in report["strategy"].items():
+        suffix = f"_{strategy}" if multiple else ""
+        save_table(strategy_frame, results_dir, f"strategy{suffix}")
     save_table(report["forecast"], results_dir, "forecast")
     save_table(report["r2_by_year"], results_dir, "oos_r2_by_year")
     save_table(report["capm"], results_dir, "capm")

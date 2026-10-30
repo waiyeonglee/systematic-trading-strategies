@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from portfolio import STRATEGIES, ForecastVolParams
+from portfolio import STRATEGY_CHOICES, ForecastVolParams
 from utils.paths import CONFIG_PATH
 
 DEFAULT_SEED = 5205
@@ -97,7 +97,7 @@ class Settings:
     model_single: dict = field(default_factory=lambda: {"family": "lasso", "alpha": 0.9})
     model_selection: tuple[dict, ...] = ()
     # portfolio
-    strategy: str = "top_k"
+    strategy: str = "both"
     initial_capital_usd: float = 100_000.0
     top_k: int = 5
     gate: float = 0.0
@@ -119,15 +119,6 @@ class Settings:
             f"model.mode is {self.model_mode!r} but no model entries are configured; "
             "use 'single' with a `single:` block or 'selection' with a non-empty `selection:` list"
         )
-
-    def portfolio_slug(self) -> str:
-        """Compact, filename-safe label for the strategy and the settings it trades on."""
-        if self.strategy == "forecast_vol_scaled":
-            params = self.forecast_vol
-            return f"fvs{params.vol_window}_{params.broker}_c{params.cost_bps:g}_{params.rebalance}"
-        if self.strategy == "top_k":
-            return f"topk{self.top_k}_g{self.gate:g}_c{self.cost_bps:g}"
-        return str(self.strategy)
 
 
 def _section(config: dict, name: str) -> dict:
@@ -174,10 +165,9 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
     portfolio = _section(config, "portfolio")
 
     strategy = portfolio.get("strategy") or Settings.strategy
-    strategy_block = _section(portfolio, strategy)
-    if strategy not in STRATEGIES:
+    if strategy not in STRATEGY_CHOICES:
         raise ValueError(
-            f"portfolio.strategy must be one of {sorted(STRATEGIES)}, got {strategy!r}"
+            f"portfolio.strategy must be one of {list(STRATEGY_CHOICES)}, got {strategy!r}"
         )
 
     overrides = {
@@ -197,15 +187,17 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
         "strategy": strategy,
         "initial_capital_usd": _optional(portfolio.get("initial_capital_usd"), float),
     }
-    if strategy == "forecast_vol_scaled":
-        overrides["forecast_vol"] = ForecastVolParams.from_mapping(strategy_block)
-    else:
+    if strategy in ("top_k", "both"):
+        top_k_block = _section(portfolio, "top_k")
         overrides.update({
-            "top_k": _optional(strategy_block.get("k"), int),
-            "gate": _optional(strategy_block.get("gate"), float),
-            "cost_bps": _optional(strategy_block.get("cost_bps"), float),
-            "gates": _optional(strategy_block.get("gate_sweep"), tuple),
+            "top_k": _optional(top_k_block.get("k"), int),
+            "gate": _optional(top_k_block.get("gate"), float),
+            "cost_bps": _optional(top_k_block.get("cost_bps"), float),
+            "gates": _optional(top_k_block.get("gate_sweep"), tuple),
         })
+    if strategy in ("forecast_vol_scaled", "both"):
+        forecast_block = _section(portfolio, "forecast_vol_scaled")
+        overrides["forecast_vol"] = ForecastVolParams.from_mapping(forecast_block)
     settings = Settings(**{key: value for key, value in overrides.items() if value is not None})
 
     for name in ("window_train", "window_val"):

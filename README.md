@@ -12,6 +12,9 @@ Two portfolio construction rules read those predictions:
 - **`forecast_vol_scaled`** divides each prediction by its forecast volatility and trades the
   scaled signals long and short at 100% gross exposure.
 
+`portfolio.strategy` picks one rule or `both` (the default), which trades the same
+predictions with both rules and compares them in the same tables and figures.
+
 Models are penalised linear regressions refitted walk-forward, scored on a validation window,
 and evaluated once on the test period.
 
@@ -111,7 +114,7 @@ long *and* short, and the long and short legs are not forced to balance.
 ```mermaid
 flowchart TD
     A["bar t: predicted excess return for every ETF"] --> B["drift the book: yesterday's returns<br/>move every weight"]
-    B --> C{"rebalance date?<br/>first bar of the month"}
+    B --> C{"rebalance date?<br/>daily, weekly or monthly"}
     C -- no --> D["keep the drifted weights, no trades, no cost"]
     C -- yes --> E["past predictions only: shift one bar"]
     E --> F["rolling 60-bar std per ETF<br/>needs 20 observations, floored at 1e-5"]
@@ -156,8 +159,9 @@ Other details that matter:
   rebalance date the book is marked to market and traded back to the freshly computed target,
   which restores gross exposure to 100%. Because the positions move, this correction costs
   money even when the signal has not changed, which is why the cadence matters:
-  `rebalance: "monthly"` (the default, first bar of each month) trades ~12 times a year,
-  whereas `rebalance: "daily"` re-fixes the drift on every bar and paid about 22% a year in
+  `rebalance` takes `"daily"` (every bar), `"weekly"` (first bar of each week) or
+  `"monthly"` (first bar of each month, the default). Monthly trades ~12 times a year and
+  weekly ~52, whereas `"daily"` re-fixes the drift on every bar and paid about 22% a year in
   costs on the daily test run.
 - **Exposure is normalised, not capped**: every eligible asset is scaled by the same factor,
   so the absolute weights add up to 100% at each rebalance and the whole book is invested.
@@ -167,7 +171,7 @@ Other details that matter:
   shift in the same units as a simple return, so dividing by a dispersion of predictions is
   meaningful and no return conversion is needed.
 - **Costs are per order**: nine ETFs rebalanced monthly pay nine commissions twelve times a
-  year, so check `ann_cost_drag` in `strategy.csv` before reading the Sharpe ratio.
+  year, so check `ann_cost_drag` in `strategy_<name>.csv` before reading the Sharpe ratio.
 - **No financing, borrow or margin interest** is modelled: uninvested cash earns zero and
   gross exposure stays at 100%, so no leverage is assumed.
 
@@ -234,7 +238,7 @@ cp config.yaml.example config.yaml   # once; config.yaml is git-ignored
 | `features` | bar frequency (`daily`/`weekly`) and whether the Fear & Greed alternative data is included |
 | `validation` | test window, rolling training window, validation window, refit cadence |
 | `model` | `mode` is `single` or `selection`, with both a single spec and a selection grid declared |
-| `portfolio` | `strategy` is `top_k` or `forecast_vol_scaled`, `initial_capital_usd` sizes the simulated account, plus one block per strategy holding its own parameters |
+| `portfolio` | `strategy` is `both` (default), `top_k` or `forecast_vol_scaled`, `initial_capital_usd` sizes the simulated account, plus one block per strategy holding its own parameters |
 
 Edit `config.yaml`, then re-run `uv run python main.py backtest`. Keep `validation.test_start`
 at **2016 or later**: the panel starts in 2011 (the Fear & Greed index's first date) and the
@@ -286,37 +290,41 @@ comparison twice (with and without SPY) alongside equal-weight, gross-versus-net
 stats, forecast metrics (out-of-sample R², RMSE, direction accuracy, rank IC) and CAPM
 alpha/beta, then reports where the artifacts went.
 
-Every run writes into its own `results/<run_tag>/` folder so configurations never overwrite
-each other. The tag encodes the settings that change the numbers:
+Every run writes into its own `results/<run_tag>/` folder. The tag is deliberately limited to
+the settings that change the *predictions*; the portfolio settings are not part of it because
+they are recorded in `run_config.yaml` inside the folder:
 
 ```
-<frequency>_<fg|nofg>_roll<window_train>_val<window_val>_<refit>_<model>_<strategy slug>_<test years>
+<frequency>_<fg|nofg>_roll<window_train>_val<window_val>_<refit>_<model>_<test years>
 
-results/weekly_nofg_roll5y_val3y_mrefit_lasso_a0.0001_topk5_g0_c5_2024-2025/
-results/daily_nofg_roll5y_val3y_mrefit_lasso_a1e-05_fvs60_moomoo_c5_monthly_2024-2025/
+results/weekly_nofg_roll5y_val3y_mrefit_lasso_a0.0001_2024-2025/
+results/daily_nofg_roll5y_val3y_mrefit_lasso_a1e-05_2024-2025/
 ```
 
-The strategy part of the tag is `topk<k>_g<gate>_c<cost>` for `top_k` and
-`fvs<vol_window>_<broker>_c<cost>_<rebalance>` for `forecast_vol_scaled`, so two runs with
-different portfolio settings never share a folder.
+So re-running the same features and model with a different strategy, gate, cadence or broker
+overwrites that folder - use `run_config.yaml` to see which portfolio settings produced it.
 
 `run_config.yaml` is not a copy of `config.yaml`: it records the resolved settings for that
 run - the feature columns actually used, the expanded model specs (a grid is written out in
-full), the training window in bars, and the portfolio parameters.
+full), the training window in bars, and the parameters of every strategy that traded.
 
-The gate sweep only exists for `top_k`, because `forecast_vol_scaled` has no swap threshold:
-with it configured, the two gate figures and the two gate tables below are simply not written.
+With `strategy: both`, the comparison tables and the cumulative-return figures carry one row
+or line per strategy (`<model> top_k` and `<model> forecast_vol_scaled`), and the
+per-strategy outputs are suffixed with the strategy name. The gate sweep only exists for
+`top_k`, because `forecast_vol_scaled` has no swap threshold: with a strategy list that omits
+`top_k`, the two gate figures and the two gate tables below are simply not written.
 
 ### Figures
 
 | File | Shows |
 | --- | --- |
-| `cumulative_returns.png` | growth of $1: model (net) vs SPY vs equal-weight |
+| `cumulative_returns.png` | growth of $1: each strategy (net) vs SPY vs equal-weight |
 | `cumulative_returns_no_spy.png` | the same chart without SPY |
+| `cumulative_returns_with_trades.png` | growth of $1 per strategy with a marker on every bar that traded (the `turnover > 0` bars), plus a trade-count rug underneath |
 | `cumulative_returns_by_gate.png` | every gate in `gate_sweep` on the validation window (`top_k` only) |
 | `cumulative_returns_by_gate_test.png` | every gate in `gate_sweep` on the test period (`top_k` only) |
 | `drawdown.png` / `drawdown_no_spy.png` | drawdown from the running peak, with / without SPY |
-| `gross_vs_net.png` | gross vs net growth of $1, and cumulative costs in bps |
+| `gross_vs_net.png` | gross vs net growth of $1, and cumulative costs in bps (`_<strategy>` when both run) |
 | `sharpe_by_model.png` | validation net Sharpe for each configured model |
 | `sharpe_by_period.png` / `sharpe_by_period_no_spy.png` | Sharpe ratio per calendar year, with / without SPY |
 | `turnover_vs_gate.png` | annual turnover and net Sharpe against the gate (`top_k` only) |
@@ -331,18 +339,19 @@ with it configured, the two gate figures and the two gate tables below are simpl
 | `validation_ranking.csv` | one row per model spec, best validation net Sharpe first |
 | `gate_sweep.csv` | annual turnover and net Sharpe per gate on validation (`top_k` only) |
 | `gate_comparison_test.csv` | return, vol, Sharpe, drawdown and hit rate per gate on test (`top_k` only) |
-| `comparison.csv` | the same stats for model, SPY and equal-weight |
+| `comparison.csv` | the same stats for every strategy, SPY and equal-weight |
 | `comparison_no_spy.csv` | the same table without SPY |
-| `strategy.csv` | gross and net stats, turnover and cost drag for the chosen model |
+| `strategy.csv` | gross and net stats, turnover and cost drag (`strategy_<name>.csv` when both run) |
 | `forecast.csv` | out-of-sample R², RMSE, direction accuracy, correlation and rank IC |
 | `oos_r2_by_year.csv` | out-of-sample R² per calendar year |
-| `capm.csv` | alpha, beta and the alpha t-statistic against SPY |
+| `capm.csv` | alpha, beta and the alpha t-statistic against SPY, one row per strategy |
 | `performance_by_period.csv` | calendar-year stats per strategy |
 | `performance_by_period_no_spy.csv` | the same, without SPY |
 | `coefficients.csv` | final model coefficients per feature |
 
-`results/` is git-ignored; re-running the same configuration overwrites that folder, and a
-different configuration creates a new one.
+Re-running the same features and model overwrites that folder whatever the portfolio settings
+are, and a different model or window creates a new one. The folder is tracked in git, so it
+holds the artifacts of the last run at each tag.
 
 ## Tests
 

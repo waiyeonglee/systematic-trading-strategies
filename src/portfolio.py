@@ -108,7 +108,8 @@ class ForecastVolParams:
         vol_min_periods: Past predictions needed before any volatility is usable.
         rebalance: How often the holdings are traded back to the target weights, which also
             corrects the weight drift caused by the positions moving with the market:
-            ``"monthly"`` (first bar of each month) or ``"daily"`` (every bar).
+            ``"daily"`` (every bar), ``"weekly"`` (first bar of each week) or ``"monthly"``
+            (first bar of each month).
         broker: ``"moomoo"`` or ``"ibkr"``; selects the commission model.
         cost_bps: Extra proportional cost charged on every executed order, in basis points.
     """
@@ -120,8 +121,10 @@ class ForecastVolParams:
     cost_bps: float = 5.0
 
     def __post_init__(self) -> None:
-        if self.rebalance not in ("daily", "monthly"):
-            raise ValueError(f"rebalance must be 'daily' or 'monthly', got {self.rebalance!r}")
+        if self.rebalance not in ("daily", "weekly", "monthly"):
+            raise ValueError(
+                f"rebalance must be 'daily', 'weekly' or 'monthly', got {self.rebalance!r}"
+            )
         if self.broker not in ("moomoo", "ibkr"):
             raise ValueError(f"broker must be 'moomoo' or 'ibkr', got {self.broker!r}")
         if self.vol_window < 2 or not 2 <= self.vol_min_periods <= self.vol_window:
@@ -267,7 +270,8 @@ def rebalance_dates(dates: pd.DatetimeIndex, every: str = "monthly") -> pd.Datet
 
     Args:
         dates: Bars of the prediction panel.
-        every: ``"monthly"`` keeps the first bar of each calendar month, ``"daily"`` every bar.
+        every: ``"daily"`` (every bar), ``"weekly"`` (first bar of each week) or ``"monthly"``
+            (first bar of each calendar month).
 
     Returns:
         The subset of ``dates`` on which the book is traded back to its target weights.
@@ -275,8 +279,9 @@ def rebalance_dates(dates: pd.DatetimeIndex, every: str = "monthly") -> pd.Datet
     dates = pd.DatetimeIndex(dates)
     if every == "daily":
         return dates
-    first_of_month = pd.Series(dates, index=dates).groupby(dates.to_period("M")).first()
-    return pd.DatetimeIndex(first_of_month.to_numpy())
+    period = {"weekly": "W", "monthly": "M"}[every]
+    first_of_period = pd.Series(dates, index=dates).groupby(dates.to_period(period)).first()
+    return pd.DatetimeIndex(first_of_period.to_numpy())
 
 
 def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
@@ -373,9 +378,31 @@ STRATEGIES: dict[str, Callable[[pd.DataFrame, object], pd.DataFrame]] = {
     "forecast_vol_scaled": _forecast_vol_scaled,
 }
 
+BOTH = "both"
+STRATEGY_CHOICES = (*STRATEGIES, BOTH)
 
-def build_positions(preds: pd.DataFrame, config) -> pd.DataFrame:
-    """Turn predictions into portfolio weights using the configured strategy.
+
+def configured_strategies(strategy: str) -> tuple[str, ...]:
+    """Rules to trade for a configured ``portfolio.strategy`` value.
+
+    Args:
+        strategy: ``"top_k"``, ``"forecast_vol_scaled"`` or ``"both"``.
+
+    Returns:
+        ``"both"`` expands to every registered rule, otherwise the single rule.
+
+    Raises:
+        ValueError: if ``strategy`` is not one of :data:`STRATEGY_CHOICES`.
+    """
+    if strategy == BOTH:
+        return tuple(STRATEGIES)
+    if strategy not in STRATEGIES:
+        raise ValueError(f"unknown portfolio strategy {strategy!r}; use one of {STRATEGY_CHOICES}")
+    return (strategy,)
+
+
+def build_positions(preds: pd.DataFrame, config, strategy: str | None = None) -> pd.DataFrame:
+    """Turn predictions into portfolio weights using one of the configured strategies.
 
     New strategies only need a function ``f(preds, config) -> portfolio frame`` registered
     in :data:`STRATEGIES` and a matching block in ``config.yaml``.
@@ -383,6 +410,8 @@ def build_positions(preds: pd.DataFrame, config) -> pd.DataFrame:
     Args:
         preds: Panel with ``pred`` and ``fwd_ret``.
         config: Any object exposing ``strategy`` and that strategy's parameters.
+        strategy: Rule to run; defaults to the first configured one, so ``"both"`` resolves to
+            ``"top_k"`` and model selection has a single objective to rank on.
 
     Returns:
         Portfolio frame from the selected strategy.
@@ -390,9 +419,11 @@ def build_positions(preds: pd.DataFrame, config) -> pd.DataFrame:
     Raises:
         ValueError: if ``config.strategy`` is not registered.
     """
-    strategy = STRATEGIES.get(config.strategy)
-    if strategy is None:
-        raise ValueError(
-            f"unknown portfolio strategy {config.strategy!r}; available: {sorted(STRATEGIES)}"
-        )
-    return strategy(preds, config)
+    rule = strategy or configured_strategies(config.strategy)[0]
+    return STRATEGIES[rule](preds, config)
+
+
+def build_all_positions(preds: pd.DataFrame, config) -> dict[str, pd.DataFrame]:
+    """Run every configured strategy: rule name -> portfolio frame."""
+    return {name: STRATEGIES[name](preds, config)
+            for name in configured_strategies(config.strategy)}

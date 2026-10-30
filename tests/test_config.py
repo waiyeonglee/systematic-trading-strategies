@@ -154,7 +154,6 @@ def test_load_settings_reads_the_forecast_vol_scaled_block(tmp_path):
     assert settings.forecast_vol.vol_min_periods == 10
     assert settings.forecast_vol.broker == "ibkr"
     assert settings.forecast_vol.cost_bps == 8.0
-    assert settings.portfolio_slug() == "fvs30_ibkr_c8_monthly"
 
 
 def test_load_settings_rejects_a_non_positive_initial_capital(tmp_path):
@@ -188,7 +187,26 @@ def test_load_settings_rejects_an_unknown_strategy(tmp_path):
         load_settings(path)
 
 
-def test_top_k_settings_keep_their_folder_slug(tmp_path):
-    settings = load_settings(write_config(tmp_path))
+def test_load_settings_uses_both_strategies_when_asked(tmp_path):
+    path = write_config(tmp_path)
+    path.write_text(
+        path.read_text()
+        .replace("strategy: 'top_k'", "strategy: 'both'")
+        + "  forecast_vol_scaled:\n"
+        "    vol_window: 30\n"
+        "    broker: 'ibkr'\n"
+    )
 
-    assert settings.portfolio_slug() == "topk4_g0.001_c7.5"
+    settings = load_settings(path)
+
+    assert settings.strategy == "both"
+    assert (settings.top_k, settings.gate, settings.cost_bps) == (4, 0.001, 7.5)
+    assert settings.forecast_vol.vol_window == 30
+    assert settings.forecast_vol.broker == "ibkr"
+
+
+def test_load_settings_defaults_to_both_strategies(tmp_path):
+    path = write_config(tmp_path)
+    path.write_text(path.read_text().replace("  strategy: 'top_k'\n", ""))
+
+    assert load_settings(path).strategy == "both"

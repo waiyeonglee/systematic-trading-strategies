@@ -10,7 +10,8 @@ import pytest
 
 from portfolio import (ForecastVolParams, build_forecast_vol_portfolio, build_positions,
                        historical_forecast_vol, ibkr_commission, mark_to_market_weights,
-                       moomoo_commission, order_cost_usd, orders_for_target, target_weights)
+                       moomoo_commission, order_cost_usd, orders_for_target, rebalance_dates,
+                       target_weights)
 
 DATES = pd.bdate_range("2023-01-02", periods=4)
 
@@ -194,6 +195,24 @@ def test_portfolio_marks_holdings_to_market_before_rebalancing():
     assert port["turnover"].iloc[3] == pytest.approx(0.45)
 
 
+def test_rebalance_dates_offer_daily_weekly_and_monthly_cadences():
+    days = pd.bdate_range("2024-01-01", "2024-02-09")
+
+    assert rebalance_dates(days, "daily").equals(days)
+    assert list(rebalance_dates(days, "weekly")) == [
+        pd.Timestamp(day) for day in ["2024-01-01", "2024-01-08", "2024-01-15",
+                                      "2024-01-22", "2024-01-29", "2024-02-05"]]
+    assert list(rebalance_dates(days, "monthly")) == [pd.Timestamp("2024-01-01"),
+                                                      pd.Timestamp("2024-02-01")]
+
+
+def test_weekly_bars_rebalance_every_bar_when_weekly_and_monthly_by_month():
+    fridays = pd.bdate_range("2024-01-05", "2024-02-09", freq="W-FRI")
+
+    assert rebalance_dates(fridays, "weekly").equals(fridays)
+    assert len(rebalance_dates(fridays, "monthly")) == 2
+
+
 def test_portfolio_rebalances_monthly_and_lets_the_weights_drift_between():
     days = pd.bdate_range("2022-12-01", "2023-02-28")
     index = pd.MultiIndex.from_product([days, ["A", "B"]], names=["date", "ticker"])
@@ -258,7 +277,7 @@ def test_invalid_settings_are_rejected():
     with pytest.raises(ValueError):
         ForecastVolParams(broker="schwab")
     with pytest.raises(ValueError):
-        ForecastVolParams(rebalance="weekly")
+        ForecastVolParams(rebalance="quarterly")
     with pytest.raises(ValueError):
         ForecastVolParams(vol_window=10, vol_min_periods=20)
     with pytest.raises(ValueError):

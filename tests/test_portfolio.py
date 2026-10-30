@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from portfolio import build_portfolio, build_positions, gate_sweep
+from portfolio import (ForecastVolParams, build_all_positions, build_portfolio, build_positions,
+                       configured_strategies, gate_sweep)
 
 
 def make_predictions(dates: int = 5, tickers: int = 6) -> pd.DataFrame:
@@ -64,3 +65,33 @@ def test_build_positions_rejects_an_unknown_strategy():
 
     with pytest.raises(ValueError):
         build_positions(make_predictions(), config)
+
+
+def test_configured_strategies_expands_both():
+    assert configured_strategies("top_k") == ("top_k",)
+    assert configured_strategies("both") == ("top_k", "forecast_vol_scaled")
+
+    with pytest.raises(ValueError):
+        configured_strategies("momentum")
+
+
+def test_build_all_positions_runs_every_configured_strategy():
+    config = SimpleNamespace(
+        strategy="both", top_k=3, gate=0.0, cost_bps=5.0, initial_capital_usd=100_000.0,
+        forecast_vol=ForecastVolParams(vol_window=2, vol_min_periods=2, rebalance="daily"),
+    )
+
+    frames = build_all_positions(make_predictions(), config)
+
+    assert set(frames) == {"top_k", "forecast_vol_scaled"}
+    assert all({"net_ret", "turnover"} <= set(frame.columns) for frame in frames.values())
+
+
+def test_both_ranks_models_on_the_first_strategy():
+    config = SimpleNamespace(
+        strategy="both", top_k=3, gate=0.0, cost_bps=5.0, initial_capital_usd=100_000.0,
+        forecast_vol=ForecastVolParams(vol_window=2, vol_min_periods=2, rebalance="daily"),
+    )
+
+    assert build_positions(make_predictions(), config).equals(
+        build_positions(make_predictions(), config, strategy="top_k"))

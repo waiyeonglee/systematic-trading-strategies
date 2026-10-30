@@ -70,7 +70,7 @@ def fetch_and_save(frequency: str, start_date: str, end_date: str,
         frequency: ``"daily"`` or ``"weekly"``.
         start_date: Inclusive start date from the config.
         end_date: Inclusive end date from the config.
-        output_dir: Destination folder; defaults to ``data/stocks_<frequency>/raw``.
+        output_dir: Destination folder; defaults to ``data/raw/<frequency>``.
         tickers: Symbols to download.
     """
     output_dir = Path(output_dir) if output_dir is not None else raw_data_dir(frequency)
