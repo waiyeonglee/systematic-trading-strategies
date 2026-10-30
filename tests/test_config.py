@@ -131,3 +131,64 @@ def test_load_settings_rejects_an_unknown_model_mode(tmp_path):
 
     with pytest.raises(ValueError):
         load_settings(path)
+
+
+def test_load_settings_reads_the_forecast_vol_scaled_block(tmp_path):
+    path = write_config(tmp_path)
+    path.write_text(
+        path.read_text()
+        .replace("  strategy: 'top_k'", "  strategy: 'forecast_vol_scaled'\n"
+                                       "  initial_capital_usd: 50000.0")
+        + "  forecast_vol_scaled:\n"
+        "    vol_window: 30\n"
+        "    vol_min_periods: 10\n"
+        "    broker: 'ibkr'\n"
+        "    cost_bps: 8.0\n"
+    )
+
+    settings = load_settings(path)
+
+    assert settings.strategy == "forecast_vol_scaled"
+    assert settings.initial_capital_usd == 50_000.0
+    assert settings.forecast_vol.vol_window == 30
+    assert settings.forecast_vol.vol_min_periods == 10
+    assert settings.forecast_vol.broker == "ibkr"
+    assert settings.forecast_vol.cost_bps == 8.0
+    assert settings.portfolio_slug() == "fvs30_ibkr_c8_monthly"
+
+
+def test_load_settings_rejects_a_non_positive_initial_capital(tmp_path):
+    path = write_config(tmp_path)
+    path.write_text(path.read_text().replace("  strategy: 'top_k'",
+                                             "  strategy: 'top_k'\n"
+                                             "  initial_capital_usd: 0"))
+
+    with pytest.raises(ValueError):
+        load_settings(path)
+
+
+def test_load_settings_rejects_unknown_strategy_settings(tmp_path):
+    path = write_config(tmp_path)
+    path.write_text(
+        path.read_text()
+        .replace("strategy: 'top_k'", "strategy: 'forecast_vol_scaled'")
+        + "  forecast_vol_scaled:\n"
+        "    vol_windows: 30\n"
+    )
+
+    with pytest.raises(ValueError):
+        load_settings(path)
+
+
+def test_load_settings_rejects_an_unknown_strategy(tmp_path):
+    path = write_config(tmp_path)
+    path.write_text(path.read_text().replace("strategy: 'top_k'", "strategy: 'momentum'"))
+
+    with pytest.raises(ValueError):
+        load_settings(path)
+
+
+def test_top_k_settings_keep_their_folder_slug(tmp_path):
+    settings = load_settings(write_config(tmp_path))
+
+    assert settings.portfolio_slug() == "topk4_g0.001_c7.5"

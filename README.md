@@ -5,10 +5,15 @@ using machine learning and quantitative financial analysis.
 
 Nine US sector ETFs (XLB, XLE, XLF, XLI, XLK, XLP, XLU, XLV, XLY) are ranked every bar by a
 predicted **excess return** (the asset's next-bar return minus the cross-sectional median).
-The portfolio holds the top `k` at equal weight and only swaps a holding when the
-challenger is expected to beat it by more than a gate that covers the trading cost. Models
-are penalised linear regressions refitted walk-forward, scored on a validation window, and
-evaluated once on the test period.
+Two portfolio construction rules read those predictions:
+
+- **`top_k`** holds the top `k` at equal weight and only swaps a holding when the challenger
+  is expected to beat it by more than a gate that covers the trading cost.
+- **`forecast_vol_scaled`** divides each prediction by its forecast volatility and trades the
+  scaled signals long and short at 100% gross exposure.
+
+Models are penalised linear regressions refitted walk-forward, scored on a validation window,
+and evaluated once on the test period.
 
 ## How it works
 
@@ -96,6 +101,76 @@ Adding another strategy only needs a function `f(preds, config) -> portfolio fra
 registered in `portfolio.STRATEGIES` plus a matching block in `config.yaml`; the pipeline
 dispatches to it by name.
 
+## The `forecast_vol_scaled` trading strategy
+
+`portfolio.strategy: forecast_vol_scaled` implements Equation (15) of Chinco, Clark-Joseph &
+Ye (2019): each predicted return is divided by its own forecast standard deviation, and the
+signals are then scaled so their absolute values add up to 100% gross exposure. The book is
+long *and* short, and the long and short legs are not forced to balance.
+
+```mermaid
+flowchart TD
+    A["bar t: predicted excess return for every ETF"] --> B["drift the book: yesterday's returns<br/>move every weight"]
+    B --> C{"rebalance date?<br/>first bar of the month"}
+    C -- no --> D["keep the drifted weights, no trades, no cost"]
+    C -- yes --> E["past predictions only: shift one bar"]
+    E --> F["rolling 60-bar std per ETF<br/>needs 20 observations, floored at 1e-5"]
+    F --> G["signal = prediction / forecast std"]
+    G --> H["divide by the sum of absolute signals<br/>so gross exposure is 100%"]
+    H --> I["order = (target - drifted) x equity<br/>commission + cost_bps per order"]
+    D --> J["gross = sum of weight x next-bar return"]
+    I --> J
+    J --> K["net = gross - cost / equity"]
+```
+
+Why the forecast volatility comes from predictions and not from returns:
+
+| Choice | Reason |
+| --- | --- |
+| rolling std of **past out-of-sample predictions** | the paper scales the signal by the uncertainty of *that signal*; realised return volatility would measure the asset, not the forecast |
+| shifted by one bar, so the prediction of `t` is excluded | the forecast traded on `t` cannot sit inside its own denominator |
+| `vol_min_periods` of 20 before an ETF is tradable | a 60-bar window on three observations is noise, so early bars stay in cash |
+| history is never reset at a monthly refit | a refit changes the model, not the fact that older predictions are out of sample |
+| same window carried across refits | the rolling std simply keeps consuming predictions, so no artificial 60-bar warm-up every month |
+
+Transaction costs are charged per executed order, never on the portfolio value:
+
+- **Moomoo**: `max(0.03% x notional, USD 0.77)` plus 9% GST on that commission.
+- **IBKR**: `min(USD 1.00, 1% x notional)`.
+- **Every order**: an extra `cost_bps` (default 5 bps) of the traded notional, added exactly
+  once in `portfolio.order_cost_usd`.
+
+Only `vol_window`, `vol_min_periods`, `rebalance`, `broker` and `cost_bps` are configurable.
+Everything else is a literal inside the function that uses it: the broker rates, fee floors
+and GST rate in `portfolio.moomoo_commission` and `portfolio.ibkr_commission`, the 1e-5
+volatility floor in `portfolio.target_weights`, the (zero) minimum order size in
+`portfolio.orders_for_target` and the 100% gross exposure. The simulated account size is
+`portfolio.initial_capital_usd`, because the commission floors are absolute dollars. An order
+that closes one position and opens the opposite one is a single order covering both legs.
+
+Other details that matter:
+
+- **Weight drift is corrected by rebalancing, not continuously.** Between rebalances every
+  position is left alone, so a winner grows past its target weight and a loser shrinks below
+  it; that is what the `gross_exposure`/`net_exposure` columns show drifting. On each
+  rebalance date the book is marked to market and traded back to the freshly computed target,
+  which restores gross exposure to 100%. Because the positions move, this correction costs
+  money even when the signal has not changed, which is why the cadence matters:
+  `rebalance: "monthly"` (the default, first bar of each month) trades ~12 times a year,
+  whereas `rebalance: "daily"` re-fixes the drift on every bar and paid about 22% a year in
+  costs on the daily test run.
+- **Exposure is normalised, not capped**: every eligible asset is scaled by the same factor,
+  so the absolute weights add up to 100% at each rebalance and the whole book is invested.
+- **Turnover compares targets with the drifted book**, so at a rebalance the trade is the
+  drift plus the signal change, and it is zero on every bar in between.
+- **Predictions are excess returns** (the cross-sectional median is subtracted), which is a
+  shift in the same units as a simple return, so dividing by a dispersion of predictions is
+  meaningful and no return conversion is needed.
+- **Costs are per order**: nine ETFs rebalanced monthly pay nine commissions twelve times a
+  year, so check `ann_cost_drag` in `strategy.csv` before reading the Sharpe ratio.
+- **No financing, borrow or margin interest** is modelled: uninvested cash earns zero and
+  gross exposure stays at 100%, so no leverage is assumed.
+
 ## Layout
 
 ```
@@ -108,7 +183,7 @@ src/
   labels.py        forward return and the cross-sectional excess-return target
   splits.py        date-window and sliding-period train/validation/test splits
   models.py        model specifications and walk-forward prediction
-  portfolio.py     predicted returns -> equal-weight top-k portfolio with costs
+  portfolio.py     predicted returns -> portfolio, both strategies plus broker costs
   metrics.py       performance, benchmark, CAPM and forecast metrics
   plots.py         every figure written by the pipeline
   pipeline.py      model selection, test run and evaluation in one call
@@ -159,7 +234,7 @@ cp config.yaml.example config.yaml   # once; config.yaml is git-ignored
 | `features` | bar frequency (`daily`/`weekly`) and whether the Fear & Greed alternative data is included |
 | `validation` | test window, rolling training window, validation window, refit cadence |
 | `model` | `mode` is `single` or `selection`, with both a single spec and a selection grid declared |
-| `portfolio` | `strategy: top_k` plus its `k`, `gate`, `cost_bps` and gate sweep |
+| `portfolio` | `strategy` is `top_k` or `forecast_vol_scaled`, `initial_capital_usd` sizes the simulated account, plus one block per strategy holding its own parameters |
 
 Edit `config.yaml`, then re-run `uv run python main.py backtest`. Keep `validation.test_start`
 at **2016 or later**: the panel starts in 2011 (the Fear & Greed index's first date) and the
@@ -215,14 +290,22 @@ Every run writes into its own `results/<run_tag>/` folder so configurations neve
 each other. The tag encodes the settings that change the numbers:
 
 ```
-<frequency>_<fg|nofg>_roll<window_train>_val<window_val>_<refit>_<model>_<strategy><k>_g<gate>_c<cost>_<test years>
+<frequency>_<fg|nofg>_roll<window_train>_val<window_val>_<refit>_<model>_<strategy slug>_<test years>
 
 results/weekly_nofg_roll5y_val3y_mrefit_lasso_a0.0001_topk5_g0_c5_2024-2025/
+results/daily_nofg_roll5y_val3y_mrefit_lasso_a1e-05_fvs60_moomoo_c5_monthly_2024-2025/
 ```
+
+The strategy part of the tag is `topk<k>_g<gate>_c<cost>` for `top_k` and
+`fvs<vol_window>_<broker>_c<cost>_<rebalance>` for `forecast_vol_scaled`, so two runs with
+different portfolio settings never share a folder.
 
 `run_config.yaml` is not a copy of `config.yaml`: it records the resolved settings for that
 run - the feature columns actually used, the expanded model specs (a grid is written out in
 full), the training window in bars, and the portfolio parameters.
+
+The gate sweep only exists for `top_k`, because `forecast_vol_scaled` has no swap threshold:
+with it configured, the two gate figures and the two gate tables below are simply not written.
 
 ### Figures
 
@@ -230,13 +313,13 @@ full), the training window in bars, and the portfolio parameters.
 | --- | --- |
 | `cumulative_returns.png` | growth of $1: model (net) vs SPY vs equal-weight |
 | `cumulative_returns_no_spy.png` | the same chart without SPY |
-| `cumulative_returns_by_gate.png` | every gate in `gate_sweep` on the validation window |
-| `cumulative_returns_by_gate_test.png` | every gate in `gate_sweep` on the test period |
+| `cumulative_returns_by_gate.png` | every gate in `gate_sweep` on the validation window (`top_k` only) |
+| `cumulative_returns_by_gate_test.png` | every gate in `gate_sweep` on the test period (`top_k` only) |
 | `drawdown.png` / `drawdown_no_spy.png` | drawdown from the running peak, with / without SPY |
 | `gross_vs_net.png` | gross vs net growth of $1, and cumulative costs in bps |
 | `sharpe_by_model.png` | validation net Sharpe for each configured model |
 | `sharpe_by_period.png` / `sharpe_by_period_no_spy.png` | Sharpe ratio per calendar year, with / without SPY |
-| `turnover_vs_gate.png` | annual turnover and net Sharpe against the gate |
+| `turnover_vs_gate.png` | annual turnover and net Sharpe against the gate (`top_k` only) |
 | `coefficients.png` | standardised coefficients of the final model |
 | `oos_r2.png` | out-of-sample R² by year and cumulatively |
 
@@ -246,8 +329,8 @@ full), the training window in bars, and the portfolio parameters.
 | --- | --- |
 | `run_config.yaml` | resolved settings actually used by the run |
 | `validation_ranking.csv` | one row per model spec, best validation net Sharpe first |
-| `gate_sweep.csv` | annual turnover and net Sharpe per gate on validation |
-| `gate_comparison_test.csv` | return, vol, Sharpe, drawdown and hit rate per gate on test |
+| `gate_sweep.csv` | annual turnover and net Sharpe per gate on validation (`top_k` only) |
+| `gate_comparison_test.csv` | return, vol, Sharpe, drawdown and hit rate per gate on test (`top_k` only) |
 | `comparison.csv` | the same stats for model, SPY and equal-weight |
 | `comparison_no_spy.csv` | the same table without SPY |
 | `strategy.csv` | gross and net stats, turnover and cost drag for the chosen model |

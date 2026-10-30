@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from portfolio import STRATEGIES, ForecastVolParams
 from utils.paths import CONFIG_PATH
 
 DEFAULT_SEED = 5205
@@ -97,10 +98,12 @@ class Settings:
     model_selection: tuple[dict, ...] = ()
     # portfolio
     strategy: str = "top_k"
+    initial_capital_usd: float = 100_000.0
     top_k: int = 5
     gate: float = 0.0
     cost_bps: float = 5.0
     gates: tuple[float, ...] = (0.0, 0.0005, 0.001, 0.002, 0.005)
+    forecast_vol: ForecastVolParams = field(default_factory=ForecastVolParams)
 
     def model_entries(self) -> tuple[dict, ...]:
         """Return the model entries selected by :attr:`model_mode`.
@@ -116,6 +119,15 @@ class Settings:
             f"model.mode is {self.model_mode!r} but no model entries are configured; "
             "use 'single' with a `single:` block or 'selection' with a non-empty `selection:` list"
         )
+
+    def portfolio_slug(self) -> str:
+        """Compact, filename-safe label for the strategy and the settings it trades on."""
+        if self.strategy == "forecast_vol_scaled":
+            params = self.forecast_vol
+            return f"fvs{params.vol_window}_{params.broker}_c{params.cost_bps:g}_{params.rebalance}"
+        if self.strategy == "top_k":
+            return f"topk{self.top_k}_g{self.gate:g}_c{self.cost_bps:g}"
+        return str(self.strategy)
 
 
 def _section(config: dict, name: str) -> dict:
@@ -135,7 +147,7 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
     """Read ``config.yaml``, keeping :class:`Settings` defaults for missing keys.
 
     Sections: ``data``, ``features`` (with ``features.alternative``), ``validation``,
-    ``model``, ``portfolio`` (strategy name plus one block per strategy) and ``plot``.
+    ``model`` and ``portfolio`` (strategy name plus one block per strategy).
 
     Args:
         path: Config file to read; a missing file yields the defaults.
@@ -144,8 +156,8 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
         The merged settings.
 
     Raises:
-        ValueError: on a malformed window, an unknown ``model.mode``, or ``selection``
-            mode with an empty grid.
+        ValueError: on a malformed window, an unknown ``model.mode``, ``selection`` mode with
+            an empty grid, an unknown ``portfolio.strategy`` or an unknown strategy setting.
     """
     path = Path(path)
     if not path.exists():
@@ -163,6 +175,10 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
 
     strategy = portfolio.get("strategy") or Settings.strategy
     strategy_block = _section(portfolio, strategy)
+    if strategy not in STRATEGIES:
+        raise ValueError(
+            f"portfolio.strategy must be one of {sorted(STRATEGIES)}, got {strategy!r}"
+        )
 
     overrides = {
         "seed": _optional(config.get("seed"), int),
@@ -178,12 +194,18 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
         "model_mode": model.get("mode"),
         "model_single": model.get("single"),
         "model_selection": _optional(model.get("selection"), tuple),
-        "strategy": portfolio.get("strategy"),
-        "top_k": _optional(strategy_block.get("k"), int),
-        "gate": _optional(strategy_block.get("gate"), float),
-        "cost_bps": _optional(strategy_block.get("cost_bps"), float),
-        "gates": _optional(strategy_block.get("gate_sweep"), tuple),
+        "strategy": strategy,
+        "initial_capital_usd": _optional(portfolio.get("initial_capital_usd"), float),
     }
+    if strategy == "forecast_vol_scaled":
+        overrides["forecast_vol"] = ForecastVolParams.from_mapping(strategy_block)
+    else:
+        overrides.update({
+            "top_k": _optional(strategy_block.get("k"), int),
+            "gate": _optional(strategy_block.get("gate"), float),
+            "cost_bps": _optional(strategy_block.get("cost_bps"), float),
+            "gates": _optional(strategy_block.get("gate_sweep"), tuple),
+        })
     settings = Settings(**{key: value for key, value in overrides.items() if value is not None})
 
     for name in ("window_train", "window_val"):
@@ -194,4 +216,8 @@ def load_settings(path: Path = CONFIG_PATH) -> Settings:
             f"model.mode must be 'single' or 'selection', got {settings.model_mode!r}"
         )
     settings.model_entries()  # fail fast on an empty or missing model block
+    if settings.initial_capital_usd <= 0:
+        raise ValueError(
+            f"portfolio.initial_capital_usd must be positive, got {settings.initial_capital_usd}"
+        )
     return settings

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -60,6 +61,19 @@ def run_features(settings) -> None:
           f"labels through {sample_end.date()}; saved to {output_dir}")
 
 
+def portfolio_parameters(settings) -> dict:
+    """The configured strategy and its resolved settings, as recorded in ``run_config.yaml``."""
+    parameters = {"strategy": settings.strategy,
+                  "initial_capital_usd": settings.initial_capital_usd}
+    if settings.strategy == "forecast_vol_scaled":
+        parameters["forecast_vol_scaled"] = asdict(settings.forecast_vol)
+    else:
+        parameters.update({"k": settings.top_k, "gate": settings.gate,
+                           "cost_bps": settings.cost_bps,
+                           "gate_sweep": list(settings.gates)})
+    return parameters
+
+
 def run_backtest(settings) -> None:
     """Train on the real data, trade the test period and print the evaluation summary."""
     ppy = periods_per_year(settings.frequency)
@@ -87,8 +101,7 @@ def run_backtest(settings) -> None:
           f"window_val {settings.window_val}, refit {settings.refit_every}")
     print(f"  model [{settings.model_mode}]: {grid[0].name}"
           + (f" + {len(grid) - 1} more" if len(grid) > 1 else ""))
-    print(f"  portfolio [{settings.strategy}]: top_k={settings.top_k}, gate={settings.gate:.2f}, "
-          f"cost_bps={settings.cost_bps:g}")
+    print(f"  portfolio [{settings.strategy}]: {settings.portfolio_slug()}")
     print(f"  results -> {results_dir.relative_to(PROJECT_ROOT)}")
 
     save_parameters({
@@ -107,13 +120,13 @@ def run_backtest(settings) -> None:
                   "specs": [{"name": spec.name, "family": spec.name.split("_")[0],
                              "alpha": spec.alpha, "l1_ratio": spec.l1_ratio}
                             for spec in grid]},
-        "portfolio": {"strategy": settings.strategy, "k": settings.top_k,
-                      "gate": settings.gate, "cost_bps": settings.cost_bps,
-                      "gate_sweep": list(settings.gates)},
+        "portfolio": portfolio_parameters(settings),
     }, results_dir)
 
     cfg = PipelineConfig(freq=settings.frequency, strategy=settings.strategy, top_k=settings.top_k,
                          gate=settings.gate, cost_bps=settings.cost_bps,
+                         initial_capital_usd=settings.initial_capital_usd,
+                         forecast_vol=settings.forecast_vol,
                          refit_every=settings.refit_every, window_train=window_train, grid=grid,
                          seed=settings.seed)
     results = run_pipeline(train, val, test, feature_cols, cfg)

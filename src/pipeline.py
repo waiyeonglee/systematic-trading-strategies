@@ -15,7 +15,7 @@ from models import ModelSpec, default_grid, model_family, walk_forward_predict
 from plots import (plot_coefficients, plot_cumulative, plot_drawdown, plot_gross_vs_net,
                    plot_oos_r2, plot_period_sharpe, plot_sharpe_by_model,
                    plot_tech_vs_trends)
-from portfolio import build_positions
+from portfolio import ForecastVolParams, build_positions
 from utils.artifacts import save_nested, save_table
 from utils.checks import require_columns
 from utils.config import DEFAULT_SEED, duration_slug, periods_per_year
@@ -36,14 +36,13 @@ def run_tag(settings, grid: list[ModelSpec]) -> str:
         ``daily_fg_roll5y_val3y_mrefit_lasso_a0.0001_topk5_g0_c5_2024-2025``.
     """
     model = grid[0].name if len(grid) == 1 else f"grid{len(grid)}"
-    strategy = f"{settings.strategy.replace('_', '')}{settings.top_k}"
     return (
         f"{settings.frequency}_"
         f"{'fg' if settings.use_fear_greed else 'nofg'}_"
         f"roll{duration_slug(settings.window_train)}_"
         f"val{duration_slug(settings.window_val)}_"
         f"{REFIT_SLUGS.get(settings.refit_every, settings.refit_every)}_"
-        f"{model}_{strategy}_g{settings.gate:g}_c{settings.cost_bps:g}_"
+        f"{model}_{settings.portfolio_slug()}_"
         f"{pd.Timestamp(settings.test_start):%Y}-{pd.Timestamp(settings.test_end):%Y}"
     )
 
@@ -55,9 +54,11 @@ class PipelineConfig:
     Attributes:
         freq: ``"daily"`` or ``"weekly"``; sets periods per year.
         strategy: Portfolio strategy name; must exist in ``portfolio.STRATEGIES``.
+        initial_capital_usd: Starting equity of the simulated account.
         top_k: Number of assets held (used by the ``top_k`` strategy).
         gate: Predicted-return gap needed to swap, in return units.
         cost_bps: One-way transaction cost in basis points.
+        forecast_vol: Settings of the ``forecast_vol_scaled`` strategy.
         refit_every: Refit cadence as a pandas offset alias.
         window_train: Rolling training window in dates; ``None`` uses all past data.
         grid: Model specifications to compare on validation.
@@ -66,9 +67,11 @@ class PipelineConfig:
 
     freq: str = "daily"
     strategy: str = "top_k"
+    initial_capital_usd: float = 100_000.0
     top_k: int = 5
     gate: float = 0.0
     cost_bps: float = 5.0
+    forecast_vol: ForecastVolParams = field(default_factory=ForecastVolParams)
     refit_every: str = "QE"
     window_train: int | None = None
     grid: list[ModelSpec] = field(default_factory=default_grid)
