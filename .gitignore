@@ -3,14 +3,12 @@
 __pycache__/
 .ipynb_checkpoints/
 
-# Generated data outputs; keep folder placeholders only.
-data/stocks_daily/raw/*
-!data/stocks_daily/raw/.gitkeep
-data/stocks_weekly/raw/*
-!data/stocks_weekly/raw/.gitkeep
+# Downloaded price CSVs; keep the folder placeholders only.
+data/raw/*/*
+!data/raw/*/.gitkeep
 
-# Generated feature tables are local analysis outputs.
-# reports/feature_selection/*/features.csv
+# Feature tables are large and rebuilt by main.py features.
+data/features/*/features.csv
 
-__pycache__/
-*.py[cod]
+# Local run configuration; copy config.yaml.example instead.
+config.yaml
