@@ -107,11 +107,12 @@ Outputs are written separately to `reports/feature_selection/daily/` and
 
 `main.py` runs the whole model pipeline on the real sector-ETF data: it builds the
 19 features above, joins the cross-sectional next-bar label, and backtests a single
-penalised logistic regression (`lasso_C1.0`, fixed in `GRID`) that is refitted every
-week over a rolling window (default two years: 504 daily bars or 104 weekly bars)
-with a one-bar embargo. The months before the test period form the validation
-window, which only drives the gate sweep. All randomness is seeded with `SEED`
-(5205), so repeated runs give identical output.
+penalised logistic regression (`lasso_C1.0`, fixed in `GRID`) that is refitted on the
+`--refit-every` cadence (default: monthly) over a rolling window (default two
+years: 504 daily bars or 104 weekly bars) with a one-bar embargo. The months
+before the test period form the validation window, which only drives the gate
+sweep. All randomness is seeded with `SEED` (5205), so repeated runs give
+identical output.
 
 ### Setup
 
@@ -129,7 +130,8 @@ uv run pytest                  # optional: confirm the environment works (29 tes
 | `--test-end` | `2025-12-31` | Last date of the reported period |
 | `--window-years` | `2.0` | Rolling training window length, in years of bars |
 | `--val-months` | `24` | Validation window before the test period, in months |
-| `--compare-refit` | off | Also compare every-bar refitting against weekly refitting |
+| `--refit-every {D,W-FRI,ME,QE}` | `ME` | Refit cadence (pandas offset alias): every bar, weekly, monthly, quarterly |
+| `--compare-refit` | off | Also compare refit cadences (monthly vs weekly vs every bar) |
 
 ### Sample runs
 
@@ -166,7 +168,11 @@ uv run python main.py --frequency weekly --test-start 2020-01-01 \
 # 7. Longer training window (~3 min)
 uv run python main.py --frequency weekly --test-start 2020-01-01 --window-years 3
 
-# 8. Refit cadence study: every-bar vs weekly refitting (~5-10 min, daily only)
+# 8. Longer training window and validation window, monthly refit (~5 min)
+uv run python main.py --frequency daily --test-start 2020-01-01 \
+    --window-years 5 --val-months 36 --refit-every ME
+
+# 9. Refit cadence study: monthly vs weekly vs every-bar refitting (~10-20 min, daily)
 uv run python main.py --frequency daily --compare-refit
 ```
 

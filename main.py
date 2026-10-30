@@ -11,21 +11,22 @@ is deterministic given the same input CSVs.
 
 Model
 -----
-The model is fixed by GRID (one spec) and refitted every week over a rolling --window-years
-window of bars (2y = 504 daily or 104 weekly), dropping the most recent bar before each fit
-(embargo) so no label looks into the period being predicted. The --val-months window before
-the test period is used only for the gate sweep, never for choosing the model.
+The model is fixed by GRID (one spec) and refitted on the --refit-every cadence over a rolling
+--window-years window of bars (5y = 1260 daily or 260 weekly), dropping the most recent bar
+before each fit (embargo) so no label looks into the period being predicted. The --val-months
+window before the test period is used only for the gate sweep, never for choosing the model.
 
 Figures
 -------
 Every run writes its PNGs to its own figures/<run_tag>/ folder, where run_tag encodes the
-configuration, e.g. figures/weekly_roll1y_val6m_wkrefit_lassoC1.0_g0.00_2020-2025/.
+configuration, e.g. figures/daily_roll5y_val36m_mrefit_lassoC1.0_g0.00_2020-2025/.
 
 Run
 ---
     uv run python src/fetch_data.py --frequency weekly   # once per frequency, needs network
     uv run python main.py --frequency weekly                            # test 2025
-    uv run python main.py --frequency weekly --test-start 2020-01-01    # test 2020-2025
+    uv run python main.py --frequency daily --test-start 2020-01-01 \
+        --window-years 5 --val-months 36 --refit-every ME               # monthly refit
     uv run python main.py --frequency weekly --test-start 2020-01-01 --window-years 1 --val-months 6
     uv run python main.py --frequency daily --compare-refit             # refit cadence study
 """
@@ -60,8 +61,9 @@ TOP_K = 5
 COST_BPS = 5.0
 GATE = 0.0
 GATE_CANDIDATES = (0.0, 0.02, 0.05)
-REFIT_EVERY = "W-FRI"
-REFIT_CADENCES = {"D": "every-bar refit", "W-FRI": "weekly refit"}
+REFIT_EVERY = "ME"
+REFIT_CADENCE_CHOICES = ("D", "W-FRI", "ME", "QE")
+REFIT_CADENCES = {"ME": "monthly refit", "W-FRI": "weekly refit", "D": "every-bar refit"}
 REFIT_GATES = (0.0, 0.05)
 
 WINDOW_YEARS = 2.0   # rolling training window length, in years of bars
@@ -86,6 +88,8 @@ def parse_args() -> argparse.Namespace:
                         help=f"Rolling training window in years of bars (default {WINDOW_YEARS:g}).")
     parser.add_argument("--val-months", type=int, default=VAL_MONTHS,
                         help=f"Validation window in months before the test period (default {VAL_MONTHS}).")
+    parser.add_argument("--refit-every", default=REFIT_EVERY, choices=REFIT_CADENCE_CHOICES,
+                        help=f"Refit cadence as a pandas offset alias (default {REFIT_EVERY}).")
     parser.add_argument("--compare-refit", action="store_true",
                         help="Also compare every-bar refitting against weekly refitting on the test period.")
     return parser.parse_args()
@@ -97,16 +101,19 @@ def short_spec_name(spec: ModelSpec) -> str:
 
 
 def run_tag(frequency: str, test_start: str, test_end: str, gate: float,
-            window_years: float, val_months: int) -> str:
+            window_years: float, val_months: int,
+            refit_every: str = REFIT_EVERY) -> str:
     """Human-readable short config label used as the figures/ subfolder name.
 
     Example
     -------
-        >>> run_tag("weekly", "2020-01-01", "2025-12-31", 0.05, 1.0, 6)
+        >>> run_tag("weekly", "2020-01-01", "2025-12-31", 0.05, 1.0, 6, "W-FRI")
         'weekly_roll1y_val6m_wkrefit_lassoC1.0_g0.05_2020-2025'
+        >>> run_tag("daily", "2020-01-01", "2025-12-31", 0.00, 5.0, 36, "ME")
+        'daily_roll5y_val36m_mrefit_lassoC1.0_g0.00_2020-2025'
     """
     refit = {"D": "drefit", "W-FRI": "wkrefit", "ME": "mrefit", "QE": "qrefit"}.get(
-        REFIT_EVERY, REFIT_EVERY)
+        refit_every, refit_every)
     years = f"{pd.Timestamp(test_start):%Y}-{pd.Timestamp(test_end):%Y}"
     return (f"{frequency}_roll{window_years:g}y_val{val_months}m_{refit}_"
             f"{short_spec_name(GRID[0])}_g{gate:.2f}_{years}")
@@ -230,8 +237,8 @@ def test_gate_comparison(results: dict, ppy: int) -> tuple[pd.DataFrame, pd.Data
     """Rebuild the test portfolio at each gate in GATE_CANDIDATES and compare it with equal-weight.
 
     Predictions do not depend on the gate, so this reuses results["test_preds"] instead of
-    refitting. The gate was chosen on the validation sweep; these test numbers are reported
-    side by side for reference only.
+    refitting. The gate is a free parameter that was swept on validation; these test numbers
+    are reported side by side for reference only, not used to pick anything.
 
     Inputs
     ------
@@ -257,6 +264,8 @@ def test_gate_comparison(results: dict, ppy: int) -> tuple[pd.DataFrame, pd.Data
     diagnostics = pd.DataFrame({
         "ann_turnover": {name: p["turnover"].mean() * ppy for name, p in ports.items()},
         "ann_cost_drag": {name: p["cost"].mean() * ppy for name, p in ports.items()},
+        "total_turnover": {name: p["turnover"].sum() for name, p in ports.items()},
+        "n_rebalance_days": {name: int((p["turnover"] > 1e-12).sum()) for name, p in ports.items()},
         "avg_holdings": {name: p["n_holdings"].mean() for name, p in ports.items()},
     })
     plot_cumulative(series)
@@ -264,8 +273,9 @@ def test_gate_comparison(results: dict, ppy: int) -> tuple[pd.DataFrame, pd.Data
 
 
 def refit_cadence_comparison(train: pd.DataFrame, val: pd.DataFrame, test: pd.DataFrame,
-                             ppy: int, window: int) -> pd.DataFrame:
-    """Refit the fixed model every bar vs weekly over the test period and compare them.
+                             ppy: int, window: int,
+                             base_cadence: str = REFIT_EVERY) -> pd.DataFrame:
+    """Refit the fixed model at each cadence in REFIT_CADENCES and compare them.
 
     Only the refit cadence changes: window, model spec, cost and universe are identical.
     Predicted rows are the same, so the gate interacts with cadence only through how often
@@ -277,6 +287,8 @@ def refit_cadence_comparison(train: pd.DataFrame, val: pd.DataFrame, test: pd.Da
     train, val, test : panels (see load_panel); history for the test walk-forward is train+val
     ppy              : periods per year (252 daily, 52 weekly)
     window           : rolling training window in bars
+    base_cadence     : cadence used by the main run; always included, even if not in
+                       REFIT_CADENCES
 
     Output
     ------
@@ -284,12 +296,14 @@ def refit_cadence_comparison(train: pd.DataFrame, val: pd.DataFrame, test: pd.Da
 
     Test
     ----
-        >>> refit_cadence_comparison(train, val, test, 252, 504).index
+        >>> refit_cadence_comparison(train, val, test, 252, 1260).index
     """
     history = pd.concat([train, val]).sort_index()
+    cadences = {base_cadence: f"{base_cadence} refit"}
+    cadences.update({c: label for c, label in REFIT_CADENCES.items() if c != base_cadence})
     series, diagnostics = {}, {}
     preds = None
-    for cadence, label in REFIT_CADENCES.items():
+    for cadence, label in cadences.items():
         preds = walk_forward_predict(history, test, FEATURES, GRID[0],
                                      refit_every=cadence, window=window)
         for gate in REFIT_GATES:
@@ -308,13 +322,14 @@ def refit_cadence_comparison(train: pd.DataFrame, val: pd.DataFrame, test: pd.Da
 
     fig, ax = plt.subplots(figsize=(9, 5))
     colors = dict(zip(REFIT_GATES, ("tab:blue", "tab:olive")))
-    styles = dict(zip(REFIT_CADENCES, ("-", "--")))
-    for cadence, label in REFIT_CADENCES.items():
+    line_styles = ("-", "--", ":")
+    styles = {c: line_styles[i % len(line_styles)] for i, c in enumerate(cadences)}
+    for cadence, label in cadences.items():
         for gate in REFIT_GATES:
             name = f"{label} gate={gate:.2f}"
             ax.plot((1 + series[name]).cumprod(), styles[cadence], color=colors[gate], label=name)
     ax.plot((1 + series["Equal-weight"]).cumprod(), ":", color="0.4", lw=1.6, label="Equal-weight")
-    ax.set(title="Refit cadence: every bar vs weekly (test)", ylabel="Growth of $1")
+    ax.set(title="Refit cadence comparison (test)", ylabel="Growth of $1")
     ax.legend(); ax.grid(alpha=0.3)
     save_figure(fig, "refit_cadence")
     plt.close(fig)
@@ -365,7 +380,7 @@ def main() -> None:
     train, val, test = split_panel(panel, splits)
     n_dates = lambda df: df.index.get_level_values("date").nunique()
     tag = run_tag(args.frequency, args.test_start, args.test_end, GATE,
-                  args.window_years, args.val_months)
+                  args.window_years, args.val_months, args.refit_every)
     fig_dir = set_figure_dir(PROJECT_ROOT / "figures" / tag)
 
     print(f"Panel: {args.frequency} bars, {panel.index.get_level_values('ticker').nunique()} tickers, "
@@ -374,7 +389,8 @@ def main() -> None:
     print(f"  train {n_dates(train)} bars ({splits['train'][0]}..{splits['train'][1]})"
           f" | val {n_dates(val)} bars ({splits['val'][0]}..{splits['val'][1]})"
           f" | test {n_dates(test)} bars ({splits['test'][0]}..{splits['test'][1]})")
-    print(f"  rolling window: {args.window_years:g}y = {window} bars, refit {REFIT_EVERY}, gate {GATE:.2f}")
+    print(f"  rolling window: {args.window_years:g}y = {window} bars, refit {args.refit_every}, "
+          f"gate {GATE:.2f}")
     if n_dates(train) < window:
         print(f"  WARNING: only {n_dates(train)} training bars precede the validation window but the "
               f"rolling window is {window}; the first refits use a shorter history. "
@@ -383,7 +399,7 @@ def main() -> None:
     print(f"Features ({len(FEATURES)}): {', '.join(FEATURES)}")
 
     cfg = PipelineConfig(freq=args.frequency, top_k=TOP_K, gate=GATE, cost_bps=COST_BPS,
-                         refit_every=REFIT_EVERY, window=window, grid=GRID)
+                         refit_every=args.refit_every, window=window, grid=GRID)
     results = run_pipeline(train, val, test, FEATURES, cfg)
     print("\n== Validation ranking (top 5) ==\n",
           results["val_table"].head(5).to_string(index=False))
@@ -401,14 +417,15 @@ def main() -> None:
     print("\n== Test comparison ==\n", report["comparison"])
 
     gate_perf, gate_diag = test_gate_comparison(results, ppy)
-    print("\n== Test gate comparison (net, gate chosen on validation) ==\n", gate_perf)
+    print("\n== Test gate comparison (predictions fixed, gate varied) ==\n", gate_perf)
     print("\n", gate_diag)
 
     print("\n== Test comparison vs SPY (reference only) ==\n", plot_vs_spy(results, spy_close, ppy))
 
     if args.compare_refit:
-        print("\n== Refit cadence: every bar vs weekly (test) ==")
-        print(refit_cadence_comparison(train, val, test, ppy, window).to_string())
+        print(f"\n== Refit cadence comparison (test, base {args.refit_every}) ==")
+        print(refit_cadence_comparison(train, val, test, ppy, window,
+                                       args.refit_every).to_string())
 
     print("\n== Strategy (gross vs net) ==\n", report["strategy"])
     print("\n== Forecast ==\n", pd.Series(report["forecast"]))
