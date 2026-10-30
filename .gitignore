@@ -10,7 +10,7 @@ data/stocks_weekly/raw/*
 !data/stocks_weekly/raw/.gitkeep
 
 # Generated feature tables are local analysis outputs.
-reports/feature_selection/*/features.csv
+# reports/feature_selection/*/features.csv
 
 __pycache__/
 *.py[cod]
