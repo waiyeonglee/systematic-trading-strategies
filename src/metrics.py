@@ -65,7 +65,7 @@ def strategy_report(port: pd.DataFrame, ppy: int = 252) -> pd.Series:
     """Gross versus net statistics plus turnover and cost drag for one strategy.
 
     Args:
-        port: :func:`portfolio.build_portfolio` output.
+        port: :func:`portfolio.build_forecast_vol_portfolio` output.
         ppy: Periods per year.
     """
     net = perf_stats(port["net_ret"], ppy)
@@ -140,8 +140,25 @@ def oos_r2(actual: np.ndarray, predicted: np.ndarray) -> float:
     return float(1 - np.sum((actual - predicted) ** 2) / np.sum(actual ** 2))
 
 
+def oos_r2_vs_baseline(actual: np.ndarray, model_pred: np.ndarray,
+                       base_pred: np.ndarray) -> float:
+    """Out-of-sample R² against a naive baseline.
+
+    ``1 - SSE(model) / SSE(baseline)``: positive means the model beats the naive
+    forecast, zero means parity, negative means the naive forecast is better.
+    """
+    denominator = np.sum((actual - base_pred) ** 2)
+    if denominator == 0:
+        return float("nan")
+    return float(1 - np.sum((actual - model_pred) ** 2) / denominator)
+
+
 def forecast_metrics(preds: pd.DataFrame, target_col: str = TARGET_COL) -> dict:
     """Quality of the return forecasts themselves, independent of trading.
+
+    The rank IC compares the prediction against the target column the model was
+    trained on (``fwd_ret_4bar`` or ``fwd_ret_12bar``): the forward return realised
+    from ``t+1 -> t+H`` for features dated at ``t``.
 
     Args:
         preds: Predictions panel with ``pred``, ``fwd_ret`` and ``target_col``.
@@ -155,7 +172,7 @@ def forecast_metrics(preds: pd.DataFrame, target_col: str = TARGET_COL) -> dict:
     actual, predicted = preds[target_col].values, preds["pred"].values
     nonzero = actual != 0
     rank_ic = preds.groupby(level="date").apply(
-        lambda group: group["pred"].corr(group["fwd_ret"], method="spearman")
+        lambda group: group["pred"].corr(group[target_col], method="spearman")
     )
     return {
         "oos_r2": oos_r2(actual, predicted),

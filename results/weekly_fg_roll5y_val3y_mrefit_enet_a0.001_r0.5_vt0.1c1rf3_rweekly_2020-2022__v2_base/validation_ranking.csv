@@ -1,0 +1,2 @@
+,model,family,degenerate,net_sharpe,gross_sharpe,avg_turnover
+0,enet_a0.001_r0.5,enet,False,1.3956689913963458,1.3659889809371573,0.1052847276459834

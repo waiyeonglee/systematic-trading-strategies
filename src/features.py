@@ -1,4 +1,10 @@
-"""Technical features and the feature/label correlation report."""
+"""Technical features and the feature/label correlation report (v2-owned).
+
+Semantics match the validated reference doc ``agents/feature_engineering.md``:
+every indicator lookback counts bars, so a 14-bar RSI is 14 weekly observations
+on weekly data. The feature set is the 19 base + 2 trend-following columns
+(21 in total with Fear & Greed enabled).
+"""
 
 from __future__ import annotations
 
@@ -10,10 +16,9 @@ import pandas as pd
 import seaborn as sns
 import talib
 
-from labels import LABEL
+from labels import LABEL, label_column
 from utils.checks import require_columns
 from utils.config import CORE_ETFS, periods_per_year
-from utils.plotting import save_figure
 
 FEATURES = [
     "return_1bar", "return_2bar", "return_3bar", "return_4bar",
@@ -23,6 +28,13 @@ FEATURES = [
     "rsi_14bar", "macd", "macd_signal", "bollinger_position", "volume_change_4bar",
     "fear_greed_index", "spy_return_1bar",
 ]
+# Trend-following inputs: absolute, per-ticker, from past prices only. The rule
+# reads these as 0/1 signals (value > 0 -> signal on).
+TREND_FEATURES = [
+    "trend_sma40_ratio",   # close / SMA(40 weekly bars) - 1  (≈ the 200-day MA rule)
+    "trend_mom52",         # trailing 52-bar (≈12-month) close return
+]
+TREND_SIGNAL_COLUMNS = {"sma40": "trend_sma40_ratio", "mom52": "trend_mom52"}
 ALTERNATIVE_FEATURES = {"fear_greed": ("fear_greed_index",)}
 RETURN_PERIODS = (1, 2, 3, 4, 12, 26, 52)
 
@@ -34,10 +46,13 @@ def feature_columns(use_fear_greed: bool = True) -> list[str]:
         use_fear_greed: include the Fear & Greed index feature.
 
     Returns:
-        The subset of :data:`FEATURES` the model may use.
+        The subset of :data:`FEATURES` (+ :data:`TREND_FEATURES`) the model / rule may
+        use. The trend features are always on: they are the trend-following inputs of
+        this project.
     """
     excluded = () if use_fear_greed else ALTERNATIVE_FEATURES["fear_greed"]
-    return [name for name in FEATURES if name not in excluded]
+    base = [name for name in FEATURES if name not in excluded]
+    return base + TREND_FEATURES
 
 
 def build_feature_frame(
@@ -46,28 +61,32 @@ def build_feature_frame(
     sectors: tuple[str, ...] = CORE_ETFS,
     fear_greed_index: pd.Series | None = None,
     benchmark_prices: pd.DataFrame | None = None,
+    label_horizon: int = 12,
 ) -> pd.DataFrame:
     """Build one feature row per asset and bar.
 
-    Every indicator lookback counts bars, so a 14-bar RSI uses 14 daily observations on
-    daily data and 14 weekly observations on weekly data. The Fear & Greed value and the
-    SPY return are aligned using information dated on or before each bar.
+    Every indicator lookback counts bars. The Fear & Greed value and the SPY return
+    are aligned using information dated on or before each bar.
 
     Args:
-        prices: Ticker -> OHLCV frame, as returned by :func:`data.load_ohlcv`.
+        prices: Ticker -> OHLCV frame (``Date`` index, OHLCV columns).
         frequency: ``"daily"`` or ``"weekly"``; sets the annualisation factor.
         sectors: Tickers to include, in order.
         fear_greed_index: Dated Fear & Greed values (0-100), or ``None`` to leave the
             column missing.
         benchmark_prices: Benchmark OHLCV frame used for the market-return feature.
+        label_horizon: Look-ahead of the label column in bars (features at ``t``, trade
+            at ``t+1``, realised at ``t+H``); defaults to the 12-week momentum horizon.
 
     Returns:
-        Panel indexed by ``(date, ticker)`` with ``FEATURES`` plus ``LABEL``.
+        Panel indexed by ``(date, ticker)`` with ``FEATURES`` + ``TREND_FEATURES``
+        plus the label column.
 
     Raises:
         ValueError: if ``frequency`` is unsupported or no price series is supplied.
     """
     annualisation = periods_per_year(frequency)
+    label_col = label_column(label_horizon)
 
     if fear_greed_index is not None:
         fear_greed_index = fear_greed_index.copy()
@@ -120,6 +139,9 @@ def build_feature_frame(
                 index=bars.index,
             ),
             "volume_change_4bar": bars["Volume"].pct_change(4, fill_method=None),
+            # Trend-following inputs: computed from past closes only.
+            "trend_sma40_ratio": close / smoothed(close_values, 40) - 1,
+            "trend_mom52": close.pct_change(52, fill_method=None),
             "fear_greed_index": (
                 fear_greed_index.reindex(bars.index, method="ffill")
                 if fear_greed_index is not None else np.nan
@@ -128,7 +150,7 @@ def build_feature_frame(
                 spy_return.reindex(bars.index, method="ffill")
                 if spy_return is not None else np.nan
             ),
-            LABEL: close.pct_change(1, fill_method=None).shift(-1),
+            label_col: close.shift(-label_horizon) / close.shift(-1) - 1,
         }, index=bars.index)
 
         features = features.replace([np.inf, -np.inf], np.nan)
@@ -139,20 +161,23 @@ def build_feature_frame(
     if not parts:
         raise ValueError("no sector price series were supplied")
 
-    return (
+    panel = (
         pd.concat(parts, ignore_index=True)
         .sort_values(["date", "ticker"])
-        .set_index(["date", "ticker"])[FEATURES + [LABEL]]
+        .set_index(["date", "ticker"])
     )
+    return panel[FEATURES + TREND_FEATURES + [label_col]]
 
 
 def feature_label_correlation(dataset: pd.DataFrame,
-                              columns: list[str] | None = None) -> tuple[pd.DataFrame, pd.Timestamp]:
+                              columns: list[str] | None = None,
+                              label_col: str = LABEL) -> tuple[pd.DataFrame, pd.Timestamp]:
     """Correlate every feature with the forward-return label across all labelled dates.
 
     Args:
-        dataset: Panel with the requested feature columns and ``LABEL``.
+        dataset: Panel with the requested feature columns and the label column.
         columns: Feature columns to correlate; defaults to :data:`FEATURES`.
+        label_col: Label column to correlate against; defaults to the 12-week label.
 
     Returns:
         Tuple ``(correlation, last_labelled_date)``.
@@ -162,17 +187,17 @@ def feature_label_correlation(dataset: pd.DataFrame,
             two labelled dates exist.
     """
     features = list(FEATURES if columns is None else columns)
-    require_columns(dataset, features + [LABEL], "feature dataset")
+    require_columns(dataset, features + [label_col], "feature dataset")
     if not isinstance(dataset.index, pd.MultiIndex) or "date" not in dataset.index.names:
         raise ValueError("dataset must have a MultiIndex with a 'date' level")
 
     row_dates = pd.DatetimeIndex(dataset.index.get_level_values("date"))
-    labelled = dataset[LABEL].notna()
+    labelled = dataset[label_col].notna()
     label_dates = pd.DatetimeIndex(row_dates[labelled].unique()).sort_values()
     if len(label_dates) < 2:
         raise ValueError("at least two dates with available labels are needed")
 
-    selected = features + [LABEL]
+    selected = features + [label_col]
     return dataset.loc[labelled, selected].corr(method="pearson", min_periods=2), label_dates[-1]
 
 
@@ -188,6 +213,7 @@ def save_correlation_heatmap(correlation: pd.DataFrame, output_path: Path, title
         The path that was written.
     """
     output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     size = max(11, len(correlation.columns) * 0.72)
     fig, ax = plt.subplots(figsize=(size, size * 0.82))
     sns.heatmap(
@@ -198,6 +224,7 @@ def save_correlation_heatmap(correlation: pd.DataFrame, output_path: Path, title
     ax.set_title(title, pad=14)
     plt.xticks(rotation=45, ha="right")
     plt.yticks(rotation=0)
-    save_figure(fig, output_path.parent, output_path.stem)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150)
     plt.close(fig)
     return output_path

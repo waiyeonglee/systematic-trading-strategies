@@ -1,7 +1,7 @@
 [project]
-name = "systematic-trading-strategies"
+name = "trend-following-strategy-v2"
 version = "0.1.0"
-description = "DSA5205 Project 2 - Designing, backtesting, and evaluating systematic trading strategies using machine learning and quantitative financial analysis."
+description = "DSA5205 Project 2 - Trend-following strategy v2: cross-asset weekly trend/ML strategy on 16 ETFs + SPY benchmark (standalone re-implementation)."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

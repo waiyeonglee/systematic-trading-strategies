@@ -1,1 +1,1 @@
-"""Shared helpers: paths, settings, validation, plotting and CLI wiring."""
+"""Utility package for trend-following-strategy-v2."""

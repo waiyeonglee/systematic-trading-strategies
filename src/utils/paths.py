@@ -1,4 +1,4 @@
-"""Filesystem locations used by every module."""
+"""Filesystem locations used by the v2 project."""
 
 from __future__ import annotations
 
@@ -6,13 +6,16 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 FEATURES_DIR = DATA_DIR / "features"
-ALTERNATIVE_DIR = DATA_DIR / "alternative"
+ADDITIONAL_DIR = DATA_DIR / "additional"
+
+# CNN Fear & Greed index (daily, 2011+), supplied alongside the raw data.
+FEAR_GREED_PATH = ADDITIONAL_DIR / "fear-greed.csv"
+
+# Backtest results (git-ignored): one folder per run tag.
 RESULTS_DIR = PROJECT_ROOT / "results"
-FEAR_GREED_PATH = ALTERNATIVE_DIR / "fear-greed.csv"
 
 
 def raw_data_dir(frequency: str) -> Path:

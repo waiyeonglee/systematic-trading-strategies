@@ -3,12 +3,32 @@
 __pycache__/
 .ipynb_checkpoints/
 
-# Downloaded price CSVs; keep the folder placeholders only.
-data/raw/*/*
-!data/raw/*/.gitkeep
+# macOS
+.DS_Store
 
-# Feature tables are large and rebuilt by main.py features.
-data/features/*/features.csv
+# Python artifacts
+*.pyc
+*.pyo
 
-# Local run configuration; copy config.yaml.example instead.
-config.yaml
+# Environment / secrets
+.env
+.env.*
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+
+# # Downloaded price CSVs; keep the folder placeholders only.
+# data/raw/*/*
+# !data/raw/*/.gitkeep
+
+# # Derived feature tables are rebuilt by the pipeline, not kept.
+# data/features/
+
+# # Local run configuration; copy config.yaml.example instead.
+# config.yaml
+
+# # Old backtest/model artifacts live under results/ and are regenerated per run.
+# results/

@@ -1,4 +1,4 @@
-"""Save result tables into the same run folder as the figures."""
+"""Save result tables into the run folder."""
 
 from __future__ import annotations
 

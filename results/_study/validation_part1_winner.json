@@ -1,0 +1,17 @@
+{
+  "target": "absolute1",
+  "rebalance": "weekly",
+  "freq_bars": 1,
+  "refit": "ME",
+  "model": "enet_a0.001_r0.5",
+  "net_sharpe": 1.3369694687978555,
+  "gross_sharpe": 1.3659889809371573,
+  "degenerate": false,
+  "avg_turnover": 0.1052847276459834,
+  "spec": {
+    "family": "enet",
+    "alpha": 0.001,
+    "l1_ratio": 0.5
+  },
+  "locked_from": "results/_study/validation_part1_la1_freq1w_mrefit.json"
+}

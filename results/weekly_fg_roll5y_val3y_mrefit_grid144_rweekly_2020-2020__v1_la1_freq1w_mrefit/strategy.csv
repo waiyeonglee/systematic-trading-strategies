@@ -1,0 +1,16 @@
+,value
+net_ann_return,0.0
+net_ann_vol,0.0
+net_sharpe,
+net_max_drawdown,0.0
+net_total_return,0.0
+net_hit_rate,0.0
+gross_ann_return,0.0
+gross_ann_vol,0.0
+gross_sharpe,
+gross_max_drawdown,0.0
+gross_total_return,0.0
+gross_hit_rate,0.0
+avg_turnover,0.0
+ann_turnover,0.0
+ann_cost_drag,0.0
