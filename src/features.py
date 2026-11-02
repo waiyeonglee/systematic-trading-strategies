@@ -16,7 +16,7 @@ import pandas as pd
 import seaborn as sns
 import talib
 
-from labels import LABEL, label_column
+from labels import LABEL
 from utils.checks import require_columns
 from utils.config import CORE_ETFS, periods_per_year
 
@@ -61,7 +61,6 @@ def build_feature_frame(
     sectors: tuple[str, ...] = CORE_ETFS,
     fear_greed_index: pd.Series | None = None,
     benchmark_prices: pd.DataFrame | None = None,
-    label_horizon: int = 12,
 ) -> pd.DataFrame:
     """Build one feature row per asset and bar.
 
@@ -75,18 +74,15 @@ def build_feature_frame(
         fear_greed_index: Dated Fear & Greed values (0-100), or ``None`` to leave the
             column missing.
         benchmark_prices: Benchmark OHLCV frame used for the market-return feature.
-        label_horizon: Look-ahead of the label column in bars (features at ``t``, trade
-            at ``t+1``, realised at ``t+H``); defaults to the 12-week momentum horizon.
 
     Returns:
-        Panel indexed by ``(date, ticker)`` with ``FEATURES`` + ``TREND_FEATURES``
-        plus the label column.
+        Feature-only panel indexed by ``(date, ticker)`` with ``FEATURES`` and
+        ``TREND_FEATURES``.
 
     Raises:
         ValueError: if ``frequency`` is unsupported or no price series is supplied.
     """
     annualisation = periods_per_year(frequency)
-    label_col = label_column(label_horizon)
 
     if fear_greed_index is not None:
         fear_greed_index = fear_greed_index.copy()
@@ -150,7 +146,6 @@ def build_feature_frame(
                 spy_return.reindex(bars.index, method="ffill")
                 if spy_return is not None else np.nan
             ),
-            label_col: close.shift(-label_horizon) / close.shift(-1) - 1,
         }, index=bars.index)
 
         features = features.replace([np.inf, -np.inf], np.nan)
@@ -166,7 +161,7 @@ def build_feature_frame(
         .sort_values(["date", "ticker"])
         .set_index(["date", "ticker"])
     )
-    return panel[FEATURES + TREND_FEATURES + [label_col]]
+    return panel[FEATURES + TREND_FEATURES]
 
 
 def feature_label_correlation(dataset: pd.DataFrame,

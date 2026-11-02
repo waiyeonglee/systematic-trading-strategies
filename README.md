@@ -65,16 +65,13 @@ python scripts/run_study.py v2b                 # LEGACY deferred tie-break (re-
 ```
 
 The backtest saves tables under `results/<run_tag>/` (validation ranking,
-comparison vs SPY + EW-16, forecast metrics, coefficients, run config). The default
-run reproduces the reference project's ADR 09 stack byte-for-byte on the frozen
-dataset. The validation cycle is **complete (2026-11-02) with a null test result**:
-V1 joint selection locked (enet_a0.001_r0.5, absolute1, weekly, ME refit) @ 1.3370,
-V2 winner vol_window 12w @ 0.6574, and the single 2023–2025 test draw FAILED the
-§3.2 gate (Sharpe 1.1716 < 1.2502 bar, maxDD −11.95% > −7.79% bar, alpha ≈ 0) —
-nothing promoted; see `agents/validation_and_ablation.md` §5.1/§5.3/§5.4/§6. Study
+comparison vs SPY + EW-16, forecast metrics, coefficients, run config). The
+previous validation results are archived, but require rerunning: the 4-/12-bar
+targets were corrected to match their holding periods. The 2023–2025 test window
+was already measured under the old target definitions, so a corrected rerun there
+is not an untouched holdout. See `agents/validation_and_ablation.md` §6. Study
 extraction summaries land in `results/_study/` as
 `validation_part1_*.json` / `validation_part2_*.json` / `validation_part2b_*.json`.
 See `agents/current_state.md` for the history log, `agents/feature_engineering.md`
 for the features, `agents/model_design.py` for the design (grid, portfolio
-defaults, split & gates), `agents/validation_and_ablation.md` for the validation
-protocol and measured record (closed cycle).
+defaults, split & gates), `agents/validation_and_ablation.md` for the validation protocol and archived results.

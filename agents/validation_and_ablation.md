@@ -16,6 +16,13 @@
 > and this project's first executed run were compared: the v2 engine reproduced every
 > number byte-identically on the frozen v2 dataset (see §5.1).
 
+> **Label correction (2026-11-02):** `fwd_ret_4bar` and `fwd_ret_12bar` now end at
+> `t+5` and `t+13`, respectively, to represent 4-/12-bar holds after entry at `t+1`.
+> Labels are generated only by `src/labels.py`. The results below were measured with
+> the prior shorter targets and are retained as history, not valid current model
+> selection. Rerun V1 and V2 before further conclusions. The 2023–2025 test was already
+> measured, so any corrected run on that window is a remeasurement, not a fresh holdout.
+
 ---
 
 ## 1. Data split & test-window discipline (read this first)
@@ -35,7 +42,7 @@ accepted as-is.
 | **Train** | **2011–2016** | rolling **5y (260 weeks)** minus the **embargo (matched to the look-ahead target: 4w or 12w)** at each **quarterly refit**; the first refit trains on ~2011–2016, and the window advances every quarter. Retraining happens inside **every** layer. |
 | **Validation 1 (hyperparameter tuning / model selection)** | **2017-01-01..2019-12-31** | choose the **(look-ahead, model spec)** pair — pre-declared rule: best **validation net Sharpe** on the plain (overlay-free) base book, degenerate excluded. Locked once, then used unchanged. |
 | **Validation 2 (ablation)** | **2020-01-01..2022-12-31** | portfolio-layer permutations, run with the **model locked on 2017–2019** (`mode: single`). May be re-used freely; this is where the rows in §4 are measured. |
-| **Test (final)** | **2023-01-01..2025-12-31** | final holdout — touched **only** by a promoted configuration's **single** measurement. Never used for selection or exploration. **Effective end** = last bar with a complete label: **2025-10-03** under a 12-week look-ahead (≈ 2025-11-28 under 4 weeks; see `agents/feature_engineering.md` §4). Benchmark gate bars need no labels and run to 2025-12-31. |
+| **Test (final)** | **2023-01-01..2025-12-31** | previously measured once; effective end with corrected labels is **2025-09-26** under a 12-week hold (≈ 2025-11-21 under 4 weeks; see `agents/feature_engineering.md` §4). Benchmark gate bars need no labels and run to 2025-12-31. |
 
 ### 1.2 Rules that keep the headline numbers honest
 
@@ -66,7 +73,7 @@ accepted as-is.
 | Train | rolling **5y** (refit quarterly, embargo = target horizon); first refit ≈2011–2016 | model fitting | every run |
 | Validation 1 (model selection) | **2017–2019** | **(model, look-ahead, frequency) joint selection** (best val net Sharpe on the plain overlay-free book, degenerate excluded) | selection runs only |
 | **Validation 2 (ablation)** | **2020–2022** | portfolio-layer permutation exploration | ablation study only |
-| **Test (final)** | **2023–2025** | single final measurement of a promoted config (effective end 2025-10-03 under a 12-week target) | promoted ADRs only |
+| **Test (final)** | **2023–2025** | previously measured; corrected effective end 2025-09-26 under a 12-week target | corrected reruns are remeasurements, not fresh holdouts |
 
 ## 3. Validation 1 — Hyperparameter tuning / Model selection (2017–2019)
 
@@ -315,15 +322,18 @@ direction acc 55.5%, rank-IC 0.0665 (t = 2.47). CAPM vs SPY: **alpha_ann ≈ 0.0
   out-of-sample. No further draws on this window; any future iteration starts as a
   NEW pre-registered cycle (new hypothesis + new ADR before any test measurement).
 
-## 6. Current status (completed cycle, 2026-11-02)
+## 6. Current status (label correction, 2026-11-02)
 
-- **Headline outcome:** the experiment cycle is **closed with a null test result**.
+- **Prior-cycle outcome (superseded for current selection):** the recorded experiment
+  cycle closed with a null test result.
   V1 lock: **(enet_a0.001_r0.5, absolute1, weekly, ME refit)** @ 1.3370 (2017–19,
   144-spec/2016-candidate joint selection). V2 winner: **vol_window 12w** book @
   0.6574 (2020–22). Test draw (2023–25, once): **gate FAIL** — Sharpe 1.1716 <
   1.2502 bar, maxDD −11.95% > −7.79% bar, alpha ≈ 0 → **nothing promoted, no
-  headline stack exists.**
-- `HEADLINE_*` in model_design.py stay `None` (no promotion). The 12w book and all
-  V1/V2 records remain as measured breadcrumbs for a future pre-registered cycle.
-- **Do not** report ablation-window numbers as headline results; the test window is
-  consumed (one pre-registered draw) and must not be re-drawn.
+  headline stack exists.** Those metrics used the previous label formulas.
+- **Next:** rebuild the feature panel and rerun V1 and V2 with corrected labels.
+  Keep historical run files, but do not use their rankings/results as current
+  evidence. `HEADLINE_*` remains `None`.
+- The 2023–2025 period is already consumed. A corrected run may be recorded for
+  methodological completeness, but it is a remeasurement and cannot be presented
+  as an independent untouched test.

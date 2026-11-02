@@ -1,18 +1,15 @@
 """Labels: forward-return training targets at the momentum horizons.
 
 Timing convention (ADR 01 §2.3 / ADR 07): features are computed at the close of
-bar ``t``, the trade is executed at the close of bar ``t+1`` and realised ``H``
-bars later. The model therefore predicts ``price[t+H] / price[t+1] - 1`` for a
-look-ahead of ``H`` bars. The horizon is a hyperparameter: ``absolute1`` (1 week),
+bar ``t``, the trade is executed at the close of bar ``t+1`` and held for ``H``
+bars. The model therefore predicts ``price[t+H+1] / price[t+1] - 1`` for an
+``H``-bar holding horizon. The horizon is a hyperparameter: ``absolute1`` (1 week),
 ``absolute4`` (4 weeks) or ``absolute12`` (12 weeks), with the walk-forward embargo
 set to the horizon.
 
-2026-11-02 design note (expanded grid): the 1-bar target is special. The strict
-``H = 1`` form ``price[t+1] / price[t+1] - 1`` is identically zero, so the 1-week
-label is defined as the return realised over the bar *after* the trade,
-``price[t+2] / price[t+1] - 1`` — exactly the return a weekly book earns between
-consecutive rebalances. The look-ahead >= frequency rule (validation_and_ablation.md
-§3) guarantees a 1-bar target only ever pairs with a 1-week (weekly) cadence.
+The 1-bar label is ``price[t+2] / price[t+1] - 1``: the return over the single
+bar after entry. The look-ahead >= frequency rule (validation_and_ablation.md §3)
+guarantees a 1-bar target only ever pairs with a 1-week (weekly) cadence.
 """
 
 from __future__ import annotations
@@ -35,8 +32,8 @@ MODEL_TARGETS = {"absolute1": "fwd_ret_1bar",
                  "absolute12": "fwd_ret_12bar"}
 TARGET_COL = MODEL_TARGETS["absolute12"]
 
-# Label horizon in bars, per target: the training label at row s is realised at
-# s+H, so the walk-forward embargo must cover it (12 bars for the 12-bar target).
+# Holding horizon in bars, per target. The embargo excludes the latest H training
+# dates, so their labels have fully realized by the next prediction date.
 MODEL_EMBARGO = {"absolute1": 1, "absolute4": 4, "absolute12": 12}
 
 
@@ -47,7 +44,7 @@ def label_column(horizon: int) -> str:
 
 def target_horizon(target_col: str) -> int:
     """Label horizon in bars, parsed from a forward-return column name
-    (4 for ``fwd_ret_4bar``, 12 for ``fwd_ret_12bar``)."""
+    (1, 4, or 12 for the corresponding ``fwd_ret_*bar`` target)."""
     match = re.search(r"(\d+)bar", target_col)
     return int(match.group(1)) if match else DEFAULT_HORIZON
 
@@ -63,12 +60,13 @@ def make_labels(prices: pd.DataFrame) -> pd.DataFrame:
     * ``fwd_ret_1bar``  = ``price[t+2] / price[t+1] - 1``, the 1-week forward return
       realised over the bar after the trade (the strict H=1 form is identically
       zero; see the module note).
-    * ``fwd_ret_4bar``  = ``price[t+4] / price[t+1] - 1``, the 4-week forward return
-      (features at ``t``, trade at ``t+1`` close, realised over ``t+1 -> t+4``).
-    * ``fwd_ret_12bar`` = ``price[t+12] / price[t+1] - 1``, the 12-week forward return
-      (same timing convention, held to the momentum horizon).
+    * ``fwd_ret_4bar``  = ``price[t+5] / price[t+1] - 1``, the return over four
+      weekly bars after entry at the close of ``t+1``.
+    * ``fwd_ret_12bar`` = ``price[t+13] / price[t+1] - 1``, the return over twelve
+      weekly bars after entry at the close of ``t+1``.
 
-    The last dates have no ``t+2`` / ``t+4`` / ``t+12`` price, so they are dropped.
+    Rows are retained even when a forward target is not yet realized; those values
+    are NaN. Callers can drop rows according to the targets they actually use.
 
     Args:
         prices: Wide frame, ``DatetimeIndex`` of trading dates, columns are tickers.
@@ -91,4 +89,4 @@ def make_labels(prices: pd.DataFrame) -> pd.DataFrame:
         axis=1,
     )
     labels.index.names = ["date", "ticker"]
-    return labels.dropna()
+    return labels

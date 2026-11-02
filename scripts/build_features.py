@@ -31,7 +31,7 @@ import pandas as pd
 
 from features import (build_feature_frame, feature_columns, feature_label_correlation,
                       save_correlation_heatmap)
-from labels import label_column
+from labels import MODEL_TARGETS, label_column, make_labels
 from utils.config import BENCHMARKS, TRADABLE_ETFS
 from utils.checks import require_columns
 from utils.paths import FEAR_GREED_PATH, FEATURES_DIR, raw_data_dir
@@ -71,14 +71,15 @@ def main() -> None:
                         help="bar frequency of the raw CSVs (default: weekly)")
     parser.add_argument("--no-fear-greed", action="store_true",
                         help="omit the Fear & Greed index feature (20 features)")
-    parser.add_argument("--horizon", type=int, default=12,
-                        help="label look-ahead in bars (default: 12)")
+    parser.add_argument("--horizon", type=int, default=12, choices=(1, 4, 12),
+                        help="label holding horizon in bars (default: 12)")
     args = parser.parse_args()
 
     frequency = args.frequency
     use_fear_greed = not args.no_fear_greed
     horizon = args.horizon
     columns = feature_columns(use_fear_greed)
+    target_col = MODEL_TARGETS[f"absolute{horizon}"]
     label_col = label_column(horizon)
 
     fear_greed = load_fear_greed_index() if use_fear_greed else None
@@ -88,8 +89,12 @@ def main() -> None:
 
     features = build_feature_frame(prices, frequency=frequency, sectors=TRADABLE_ETFS,
                                    fear_greed_index=fear_greed,
-                                   benchmark_prices=benchmark,
-                                   label_horizon=horizon)
+                                   benchmark_prices=benchmark)
+    closes = pd.DataFrame(
+        {ticker: prices[ticker]["Close"] for ticker in TRADABLE_ETFS}
+    ).sort_index()
+    labels = make_labels(closes)[target_col].rename(label_col)
+    features = features.join(labels, how="left")
     correlation, sample_end = feature_label_correlation(features, columns, label_col=label_col)
 
     output_dir = FEATURES_DIR / frequency

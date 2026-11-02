@@ -65,44 +65,45 @@ the rule thresholds the configured one at **value > 0 → signal on**
 
 ## 3. Labels (forward-return targets — `src/labels.py`)
 
-Timing convention: features at the close of bar `t`, trade at the close of `t+1`,
-realised `H` bars later. The label at row `t` is therefore
-**`price[t+H] / price[t+1] − 1`**.
+Timing convention: features at the close of bar `t`, enter at the close of `t+1`,
+then hold for `H` weekly bars. The label at row `t` is therefore
+**`price[t+H+1] / price[t+1] − 1`**.
 
-`make_labels(closes)` produces three columns on a `(date, ticker)` index, from
-`prices.shift(-H) / prices.shift(-1) − 1`:
+`make_labels(closes)` in `src/labels.py` is the single label implementation. It
+produces the realized portfolio return and model targets on a `(date, ticker)` index:
 
 | Column | Meaning |
 | --- | --- |
 | `fwd_ret` | `price[t+1] / price[t] − 1` — the close-to-close return the portfolio earns on bar `t` (mark-to-market / performance) |
-| `fwd_ret_4bar` | 4-week forward return (t+1 → t+4) |
-| `fwd_ret_12bar` | 12-week forward return (t+1 → t+12) — **default target** |
+| `fwd_ret_1bar` | 1-week holding-period return (t+1 → t+2) |
+| `fwd_ret_4bar` | 4-week holding-period return (t+1 → t+5) |
+| `fwd_ret_12bar` | 12-week holding-period return (t+1 → t+13) — **default target** |
 
-Horizon is a hyperparameter: `MODEL_TARGETS = {"absolute4": "fwd_ret_4bar",
-"absolute12": "fwd_ret_12bar"}`, `TARGET_COL = "fwd_ret_12bar"` by default, and
-the walk-forward embargo equals the horizon (`MODEL_EMBARGO = {"absolute4": 4,
-"absolute12": 12}`) so no unrealised labels leak into training. Rows whose label
-is NaN (last `H` bars per ticker) are dropped by the modelling panel.
+Horizon is a hyperparameter: `MODEL_TARGETS = {"absolute1": "fwd_ret_1bar",
+"absolute4": "fwd_ret_4bar", "absolute12": "fwd_ret_12bar"}`,
+`TARGET_COL = "fwd_ret_12bar"` by default, and
+the walk-forward embargo equals the holding horizon (`MODEL_EMBARGO = {"absolute1": 1,
+"absolute4": 4, "absolute12": 12}`) so no unrealised labels leak into training.
+Unrealized target values remain NaN in `make_labels`; consumers drop rows as needed.
 
 ## 4. Panel assembly (`build_feature_frame` → `scripts/build_features.py`)
 
-1. `build_feature_frame` computes the 19 base + 2 trend features per ticker and
-   appends the label column `label_forward_return_{H}bar` (H = `--horizon`,
-   default 12); infinities → NaN.
-2. `scripts/build_features.py` loads the raw weekly CSVs + fear-greed + SPY,
-   builds the frame for the 16 tradables, writes `features.csv` (NaN labels kept)
-   and the correlation report, and prints a summary.
+1. `build_feature_frame` computes only the 19 base + 2 trend features per ticker;
+   infinities → NaN.
+2. `scripts/build_features.py` loads the raw bars + fear-greed + SPY, builds features,
+   calls `make_labels` from `src/labels.py`, selects the requested target, and joins
+   it as `label_forward_return_{H}bar`. It writes `features.csv` (unrealized target
+   values kept as NaN) and the correlation report.
 
-**Verified result (v2, 2026-11-01):** `data/features/weekly/features.csv` =
-**18,047 rows × 24 columns** (`date`, `ticker`, 21 features,
-`label_forward_return_12bar`), dates 2004-01-02..2025-12-26, 16 tickers, 192
-trailing rows with NaN label. **Numeric output is byte-identical to the reference
-project's panel** (max abs diff 0.0 over all 22 numeric columns), confirming the
-re-implementation matches the validated reference on the frozen dataset.
+`data/features/weekly/features.csv` contains one selected label column in addition to
+the 21 features. The 12-week label requires a close 13 bars after the feature date,
+so its trailing 13 bars per ticker remain NaN (208 rows on the frozen weekly panel).
+Rebuild outputs after changing label definitions; earlier numeric comparisons to the
+reference panel no longer apply to corrected 4-/12-week labels.
 
-**Consequence of the label lookahead:** the modelling panel ends 12 weeks before
-the last raw bar (last 12 weeks have no 12-bar label), so the effective final
-sample date is **2025-10-03**, not 2025-12-26. `features.csv` itself keeps those
+**Consequence of the label lookahead:** the modelling panel ends 13 weeks before
+the last raw bar (the last 13 feature dates have no 12-bar label), so the effective
+final sample date is **2025-09-26**, not 2025-12-26. `features.csv` itself keeps those
 trailing bars with NaN labels.
 
 ## 5. Consumers (planned for later steps)
@@ -127,5 +128,5 @@ python scripts/build_features.py --horizon 4       # 4-bar label column
 ```
 
 Outputs land in `data/features/<frequency>/`. Settings that change the feature
-set: `--frequency`, `--no-fear-greed`, `--horizon` (label horizon H). The dataset
+set: `--frequency`, `--no-fear-greed`, `--horizon` (1, 4, or 12-bar holding horizon H). The dataset
 itself is frozen by the fixed end date 2026-01-01.

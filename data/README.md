@@ -8,7 +8,7 @@ data/
   additional/
     fear-greed.csv                 CNN Fear & Greed Index, one dated row per observation
   features/weekly/                 rebuilt by `scripts/build_features.py`
-    features.csv                   (date, ticker, 21 features, label_forward_return_12bar) — git-ignored
+    features.csv                   (date, ticker, 21 features, selected label) — git-ignored
     feature_label_correlation.csv
     feature_label_correlation.png
   README.md
@@ -86,9 +86,9 @@ Rebuilt by `scripts/build_features.py` from `raw/weekly/` + `additional/fear-gre
 - `features.csv` — one row per `(date, ticker)` for the 16 tradables: 21 features
   (7 momentum returns, 2 SMA ratios, 2 volatilities, drawdown, RSI, MACD pair,
   Bollinger position, volume change, fear-greed, SPY return, 2 trend inputs) +
-  `label_forward_return_12bar`. Verified shape: 18,047 rows, dates
-  2004-01-02..2025-12-26; the last 12 weeks per ticker carry NaN labels (192 rows),
-  so the last fully labelled date is 2025-10-03.
+  the selected `label_forward_return_{H}bar` computed by `src/labels.py`.
+  For H=12, the last 13 weekly bars per ticker carry NaN labels (208 rows), so the
+  last fully labelled date is 2025-09-26. Rebuild generated files after label changes.
 - `feature_label_correlation.csv` / `.png` — Pearson correlation of each feature
   vs the label across all labelled dates.
 - See `../agents/feature_engineering.md` for the full definition.

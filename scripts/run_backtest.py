@@ -105,7 +105,7 @@ def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
         ``(panel, benchmark_close, feature_cols)`` where the panel is indexed by
         ``(date, ticker)`` with the 21 features, ``fwd_ret`` (1-bar, earned by the
         book) and the 1/4/12-bar training labels; rows without a realised label
-        are dropped, so the panel ends at 2025-10-03 (12-bar label tail, shared by
+        are dropped, so the panel ends at 2025-09-26 (13-bar 12-week label tail, shared by
         all look-aheads).
     """
     fear_greed = load_fear_greed_index(FEAR_GREED_PATH)
@@ -115,8 +115,7 @@ def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
 
     features = build_feature_frame(prices, frequency="weekly", sectors=TRADABLE_ETFS,
                                    fear_greed_index=fear_greed,
-                                   benchmark_prices=benchmark,
-                                   label_horizon=12)
+                                   benchmark_prices=benchmark)
     close_wide = pd.DataFrame({ticker: prices[ticker]["Close"] for ticker in TRADABLE_ETFS}
                               ).sort_index()
     labels = make_labels(close_wide)

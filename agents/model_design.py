@@ -11,11 +11,14 @@ Validation 2 = ablation on 2020-2022, Test = final holdout 2023-2025); results a
 logged there and under results/. This file is the single design source of truth: what
 the pipeline is built from, how the layers split, and which knobs the study turns.
 
-v2 measured record: the experiment cycle is CLOSED (2026-11-02) with a null test
-result — V1 lock (enet_a0.001_r0.5, absolute1, weekly, ME refit) @ 1.3370, V2
-winner vol_window 12w @ 0.6574, and the single 2023–2025 draw FAILED the §3.2 gate
-(Sharpe 1.1716 < 1.2502 bar, maxDD −11.95% > −7.79% bar, alpha ≈ 0) → nothing
-promoted, HEADLINE_* stays None. The 2026-11-02 design revision (4 model families
+The 2026-11-02 experiment cycle's results are archived in
+agents/validation_and_ablation.md, but are **superseded for current assessment**:
+the 4-/12-bar target labels were corrected to match their holding periods, and
+the feature builder now sources labels only from src/labels.py. Re-run V1 and V2
+before drawing conclusions. The 2023–2025 test window was already measured under
+the old selection; any corrected rerun on it is a remeasurement, not an untouched
+holdout. No headline strategy is promoted; HEADLINE_* stays None. The 2026-11-02
+design revision (4 model families
 including the RFF ridge family + frequency x look-ahead grid {1,4,12} with
 look-ahead >= frequency, + model refit cadence {W-FRI, ME, QE} with
 refit_interval >= prediction_interval) superseded the previous selection, so
@@ -70,11 +73,9 @@ BENCHMARK = "SPY"                  # benchmark #1 (B&H); benchmark #2 = equal-we
 # 2. Features & labels (implemented in src/features.py, src/labels.py;
 #    full reference: agents/feature_engineering.md)
 # ---------------------------------------------------------------------------
-# Panel: 21 features per (date, ticker) with use_fear_greed: true (20 without),
-# plus the three label columns; NaN rows dropped. Current shape
-# data/features/weekly/features.csv = 18,047 rows x (date, ticker, 21 features,
-# label_forward_return_12bar), dates 2004-01-02..2025-12-26; the runnable panel
-# (labels joined, NaN dropped) starts 2011-01-07 and ends 2025-10-03.
+# Feature panel: 21 features per (date, ticker) with use_fear_greed: true (20
+# without). Labels are generated separately by src/labels.py and joined by callers.
+# The 12-bar holding target reaches t+13, so the runnable panel ends 2025-09-26.
 FEATURE_COUNT = 21                 # 19 base + 2 trend; fear-greed on
 TREND_SIGNAL_COLUMNS = {"sma40": "trend_sma40_ratio", "mom52": "trend_mom52"}
 SIGNAL_SMA_WINDOW = 40             # weekly bars, ≈ 200-day MA (rule path)
@@ -133,11 +134,9 @@ FREQ_LA_PAIRS = [("weekly", 1), ("weekly", 4), ("weekly", 12),
 # ME x {1w, 4w cadences} (5), QE x {all 6} -> 14 combos.
 REFIT_OPTIONS = ("W-FRI", "ME", "QE")     # weekly / monthly / quarterly
 REFIT_TO_BARS = {"W-FRI": 1, "ME": 4, "QE": 12}
-# Label timing (feature_engineering.md §3): features at the close of bar t, trade at
-# the close of t+1, realised H bars later; label = price[t+H] / price[t+1] - 1.
-# Consequence: the last labelled bar is H bars before the data end (2025-10-03 under
-# the 12-week target) — the strategy's effective final test window ends there, while
-# benchmark gate bars (no labels needed) run to 2025-12-31.
+# Label timing (feature_engineering.md §3): features at close t, enter at close t+1,
+# hold H bars; label = price[t+H+1] / price[t+1] - 1. The 12-week target reaches
+# t+13, so its final labelled date is 2025-09-26; benchmark bars run to 2025-12-31.
 
 # ---------------------------------------------------------------------------
 # 3. Position rules (per path)
@@ -186,8 +185,8 @@ TRAIN = ("2011-01-01", "2016-12-31")      # rolling 5y (~260 weeks) minus embarg
                                           # quarterly refit
 VALIDATION_1 = ("2017-01-01", "2019-12-31")  # V1: hyperparameter / model selection
 VALIDATION_2 = ("2020-01-01", "2022-12-31")  # V2: ablation rows
-TEST = ("2023-01-01", "2025-12-31")       # final holdout; effective end 2025-10-03
-                                          # under absolute12 (≈ 2025-11-28 under absolute4)
+TEST = ("2023-01-01", "2025-12-31")       # holdout; effective end 2025-09-26
+                                          # under absolute12 (≈ 2025-11-21 under absolute4)
 
 BENCHMARK_1 = "SPY"                # buy & hold
 BENCHMARK_2 = "equal_weight"       # equal-weight B&H across all 16 tradables (EW-16)

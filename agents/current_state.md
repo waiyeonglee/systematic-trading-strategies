@@ -960,3 +960,19 @@ old row1_30w/row1_90w/row2_notarget part2 files remain as stale breadcrumbs).
 - **README verified** GitHub-ready: title, dataset conventions, layout, setup
   (`uv sync`), run commands; status paragraph reflects the closed validation
   cycle; `data/README.md` reference resolves.
+
+## Step 7 — Label source and horizon correction (2026-11-02)
+
+- `build_feature_frame` now emits only features. `scripts/build_features.py` selects
+  the requested `fwd_ret_{H}bar` from `make_labels()` and joins it as
+  `label_forward_return_{H}bar`; the backtest also gets its labels from
+  `make_labels()`.
+- Corrected the 4-/12-bar targets to cover the full holding periods after entry:
+  `price[t+5]/price[t+1]-1` and `price[t+13]/price[t+1]-1`. `make_labels()` retains
+  rows with unrealized targets as NaN; consumers choose when to drop them.
+- Added tests for target endpoints, trailing NaNs, and the feature-only builder.
+- **Impact on results:** existing validation and test artifacts were generated under
+  the shorter 4-/12-bar targets, so they are archived history, not current model
+  selection evidence. Rebuild features and rerun V1/V2. The 2023–2025 test was
+  already measured, so any corrected run on it is a remeasurement, not a new
+  untouched holdout. `HEADLINE_*` remains `None`.
