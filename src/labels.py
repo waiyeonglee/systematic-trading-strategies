@@ -79,8 +79,8 @@ def make_labels(prices: pd.DataFrame) -> pd.DataFrame:
     """
     fwd_ret = prices.pct_change(fill_method=None).shift(-1)
     fwd_ret_1bar = prices.shift(-2) / prices.shift(-1) - 1
-    fwd_ret_4bar = prices.shift(-4) / prices.shift(-1) - 1
-    fwd_ret_12bar = prices.shift(-12) / prices.shift(-1) - 1
+    fwd_ret_4bar = prices.shift(-5) / prices.shift(-1) - 1
+    fwd_ret_12bar = prices.shift(-13) / prices.shift(-1) - 1
     labels = pd.concat(
         {
             "fwd_ret": fwd_ret.stack(future_stack=True),
