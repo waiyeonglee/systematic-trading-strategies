@@ -25,6 +25,8 @@ from splits import build_splits, split_panel
 from utils.artifacts import save_nested, save_parameters, save_table
 from utils.config import DEFAULT_SEED, duration_slug, duration_to_bars, periods_per_year
 
+from plots import plot_run  # noqa: E402  (matplotlib is imported by this module)
+
 REFIT_SLUGS = {"D": "drefit", "W-FRI": "wkrefit", "ME": "mrefit", "QE": "qrefit"}
 
 
@@ -111,13 +113,15 @@ def run_tag(config: PipelineConfig, test_start: str, test_end: str,
 
 
 def select_model(history: pd.DataFrame, val_df: pd.DataFrame,
-                 feature_cols: list[str], config: PipelineConfig) -> tuple[str, pd.DataFrame]:
+                 feature_cols: list[str], config: PipelineConfig) -> tuple[str, pd.DataFrame, dict]:
     """Pick the grid point with the best validation net Sharpe.
 
     Every spec is walked forward over the validation window and its book is built with
     ``apply_vol_target=False`` (so ranking matches the plain ADR-07 book); a spec whose
     predictions are constant on the window is degenerate and excluded. The ranking
-    favours the highest net Sharpe.
+    favours the highest net Sharpe. The winner's validation-window predictions and
+    books are rebuilt once at the end and returned for reporting (the plotting step
+    draws the validation window from them).
 
     Args:
         history: Training panel (rows strictly before the validation window).
@@ -126,7 +130,9 @@ def select_model(history: pd.DataFrame, val_df: pd.DataFrame,
         config: Pipeline settings (grid, window, embargo, seed, target).
 
     Returns:
-        ``(selected_name, ranking)`` with ranking sorted by ``net_sharpe`` descending.
+        ``(selected_name, ranking, selection)`` with ranking sorted by
+        ``net_sharpe`` descending and ``selection = {"preds": winner_preds,
+        "books": winner_books}`` (overlay-free, per the selection rule).
 
     Raises:
         ValueError: if every grid point is degenerate on the validation window.
@@ -160,7 +166,17 @@ def select_model(history: pd.DataFrame, val_df: pd.DataFrame,
     viable = ranking[~ranking["degenerate"]]
     if viable.empty:
         raise ValueError("every model in the grid is degenerate on the validation window")
-    return str(viable.iloc[0]["model"]), ranking
+    selected_name = str(viable.iloc[0]["model"])
+    selected = next(spec for spec in config.grid if spec.name == selected_name)
+    winner_preds = walk_forward_predict(history, val_df, feature_cols, selected,
+                                        refit_every=config.refit_every,
+                                        window=config.window_train_bars,
+                                        embargo=config.embargo,
+                                        seed=config.seed,
+                                        target_col=config.target_col)
+    winner_books = build_all_positions(winner_preds, config, apply_vol_target=False)
+    selection = {"preds": winner_preds, "books": winner_books}
+    return selected_name, ranking, selection
 
 
 def trend_success_verdict(book_net_ret: pd.Series,
@@ -211,14 +227,15 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
 
     Returns:
         Dict with ``windows``, ``train/val/test``, ``ranking``, ``selected``, ``preds``,
-        ``naive``, ``portfolio``, ``benchmarks``, ``verdict`` and ``run_tag``.
+        ``naive``, ``portfolio``, ``benchmarks``, ``verdict``, ``val_portfolio``,
+        ``val_preds``, ``val_benchmarks`` and ``run_tag``.
 
     Raises:
         ValueError: if the split yields an empty window or the selection fails.
     """
     windows = build_splits(panel, test_start, test_end, window_val)
     train, val, test = split_panel(panel, windows)
-    selected_name, ranking = select_model(train, val, feature_cols, config)
+    selected_name, ranking, selection = select_model(train, val, feature_cols, config)
     selected = next(spec for spec in config.grid if spec.name == selected_name)
 
     history = pd.concat([train, val])
@@ -240,10 +257,18 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
     comparison = {f"{selected_name} (net)": book["net_ret"], **benchmarks}
     verdict = trend_success_verdict(book["net_ret"], benchmarks, config.ppy)
 
+    # validation-window book of the selected model (overlay-free, selection basis):
+    # carried so the reporting step can plot the selection window too.
+    val_portfolio = selection["books"][config.strategy]
+    val_benchmarks = {"Equal-weight": equal_weight_universe(selection["preds"]),
+                      "SPY B&H": spy_buy_and_hold(benchmark_close, val_portfolio.index)}
+
     tag = run_tag(config, test_start, test_end, window_val)
     results = dict(windows=windows, train=train, val=val, test=test,
                    ranking=ranking, selected=selected_name, preds=preds, naive=naive,
                    portfolio=book, benchmarks=benchmarks, verdict=verdict,
+                   val_portfolio=val_portfolio, val_preds=selection["preds"],
+                   val_benchmarks=val_benchmarks,
                    run_tag=tag, window_val=window_val, config=config)
 
     if out_dir is not None:
@@ -313,8 +338,42 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str]) -> Path:
 
     save_parameters(run_parameters(results), out_dir)
 
+    # time series + report figures (both windows), so plots ship with every run
+    save_series(out_dir, "test", book, preds, benchmarks)
+    save_series(out_dir, "val", results["val_portfolio"], results["val_preds"],
+                results["val_benchmarks"])
+    plot_run(results, out_dir)
+
     print_summary(results)
     return out_dir
+
+
+def save_series(out_dir: Path, window: str, book: pd.DataFrame,
+                preds: pd.DataFrame, benchmarks: dict[str, pd.Series]) -> Path:
+    """Persist the per-bar book, per-ticker weights/orders and benchmark returns.
+
+    The figures in ``plots/`` are drawn from these series, so a report can re-plot
+    or extend them without re-running the simulation.
+
+    Args:
+        out_dir: Run folder; series land in ``<out_dir>/series/``.
+        window: ``"test"`` or ``"val"`` — prefixes the file names.
+        book: The book frame (carries ``weights_wide`` / ``orders_wide``).
+        preds: Predictions panel (unused here, kept for signature symmetry).
+        benchmarks: Label -> benchmark return series.
+
+    Returns:
+        The series directory that was created.
+    """
+    series_dir = Path(out_dir) / "series"
+    series_dir.mkdir(parents=True, exist_ok=True)
+    book.to_csv(series_dir / f"{window}_book.csv")
+    for stem, source in (("weights", getattr(book, "weights_wide", None)),
+                         ("orders", getattr(book, "orders_wide", None))):
+        if source is not None:
+            source.to_csv(series_dir / f"{window}_{stem}.csv")
+    pd.DataFrame(benchmarks).to_csv(series_dir / f"{window}_benchmarks.csv")
+    return series_dir
 
 
 def selected_spec(config: PipelineConfig, name: str) -> ModelSpec:

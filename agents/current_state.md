@@ -960,3 +960,58 @@ old row1_30w/row1_90w/row2_notarget part2 files remain as stale breadcrumbs).
 - **README verified** GitHub-ready: title, dataset conventions, layout, setup
   (`uv sync`), run commands; status paragraph reflects the closed validation
   cycle; `data/README.md` reference resolves.
+
+---
+
+## Step 7 — Report figure suite, generated inside the experiment scripts (2026-11-02)
+
+### Goal (user request)
+
+Include plots for each best-selected run's metrics **throughout time** (V1 / V2
+validation windows and the test window), and generate them **inside the
+experiment scripts** so no second "plot image" script has to be run afterwards.
+
+### What was added
+
+- **`src/plots.py`** — the 10-figure report suite, drawn from objects the
+  pipeline already computes (deterministic, Agg backend, fixed style): cumulative
+  net return vs Equal-weight/SPY, gross vs net (drag shaded), drawdown
+  (strategy + benchmarks), cumulative transaction cost + turnover with net-buy /
+  net-sell markers and long/short shading, gross/net exposure + vol-target scale
+  + leverage-blocked markers, per-ticker weights held (stacked area) + weight
+  heatmap, holdings counts, calendar-year returns, OOS R² by year. Every PNG is
+  self-contained: header (model · window dates) + subtitle (Sharpe / maxDD /
+  total / ann ret / ann vol + run tag).
+- **`src/portfolio.py`** — `build_forecast_vol_portfolio` / `build_trend_portfolio`
+  now attach `weights_wide` / `orders_wide` (per-date × per-ticker weights held
+  and signed order USD) to the book via `object.__setattr__`.
+- **`src/pipeline.py`** — `select_model` returns the winner's validation-window
+  preds + books; `run_pipeline` carries `val_portfolio` / `val_preds` /
+  `val_benchmarks`; `evaluate_all` writes `plots/` (both windows) + `series/`
+  (book / weights / orders / benchmarks) on every run. No CLI changes — every
+  `run_backtest.py` / `run_study.py` run now ships plots automatically.
+- **`agents/plots.md`** — figure list, why each belongs in the report, the
+  two-window convention, and how to regenerate.
+
+### Verification & backfill
+
+- Smoke run to `/tmp`: all 20 PNGs + 8 series CSVs produced; test metrics still
+  reproduce (alpha ≈ 0.0001, beta 0.556).
+- Backfilled (deterministic re-run into the same folders; existing tables and
+  `_study` JSONs verified **byte-identical** — md5 diff): `test_2023-2025_promoted`
+  (test 2023–2025, volwin 12w), the V2 winner row `__v2_volwin_12w` (test
+  2020–2022, net Sharpe 0.657), and the V1 winner combo folder
+  (`...__v1_la1_freq1w_mrefit`), whose `validation_*` figures cover the 2017–2019
+  selection window (net Sharpe 1.337, matching the lock).
+- **Scope per owner: the suite is kept only for those three best-selected runs
+  (one per validation phase + the test draw); `plots/` + `series/` were removed
+  from the other 10 V2 rows (tables untouched).** The other 13 V1 combo folders
+  keep tables only; they get plots automatically on any future run.
+
+### Notes
+
+- `validation_*` figures always show the overlay-free book (selection basis);
+  `test_*` figures show the vol-targeted book actually traded.
+- `results/` stays git-ignored; the added code is `src/plots.py` + edits to
+  `src/portfolio.py`, `src/pipeline.py`, `README.md`, `agents/plots.md`,
+  `agents/current_state.md` (this entry).
