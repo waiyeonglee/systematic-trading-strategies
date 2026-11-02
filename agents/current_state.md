@@ -244,7 +244,7 @@ Validated the design doc against the reference implementation and the v2 frozen 
 - Design claims about the panel match v2's frozen output exactly: last labelled bar
   2025-10-03 under absolute12; 21 features; 16 tradables + SPY; benchmark #2 = EW-16.
 - Walk-forward mechanics (rolling 5y ≈ 260 bars, quarterly refit, embargo = horizon,
-  AR(1) naive baseline, selection = best overlay-free validation net Sharpe with
+  selection = best overlay-free validation net Sharpe with
   degenerate exclusion) match the reference implementation.
 
 Conclusion: **doc is current, not stale**; copied as v2-owned
@@ -258,8 +258,7 @@ measured run.
 - `src/models.py` — `ModelSpec` (ridge/lasso/enet builders, seed 5205),
   `specs_from_config` (expands alpha / l1_ratio ranges into the 6-spec grid),
   `walk_forward_predict` (grouped by `refit_every`, past dates minus embargo,
-  optional rolling window, fresh fit per block), `ar1_walk_forward` (per-ticker
-  AR(1) on the lagged target).
+  optional rolling window, fresh fit per block).
 - `src/splits.py` — `build_splits` (train/val/test by `window_val` before
   `test_start`), `split_panel`.
 - `src/portfolio.py` — `ForecastVolParams` / `TrendParams`, moomoo & IBKR
@@ -271,13 +270,12 @@ measured run.
   `build_trend_portfolio` (long/flat + long/short), `STRATEGIES` registry,
   `build_positions` / `build_all_positions`.
 - `src/metrics.py` — `perf_stats`, `sharpe`, `max_drawdown`, `strategy_report`,
-  `comparison_table`, `spy_buy_and_hold`, `equal_weight_universe`, `capm_alpha`,
-  `period_stats`, `oos_r2`, `oos_r2_vs_baseline`, `forecast_metrics`,
-  `oos_r2_by_period`.
+  `comparison_table`, `spy_buy_and_hold`, `equal_weight_universe`,
+  `period_stats`, `oos_r2`, `forecast_metrics`, `oos_r2_by_period`.
 - `src/pipeline.py` — `PipelineConfig`, `run_tag` (folders like
   `weekly_fg_roll5y_val3y_qrefit_grid6_vt0.1c1rf3_2023-2025`), `select_model`
   (validation net Sharpe ranking, degenerate exclusion), `run_pipeline` (select →
-  walk-forward test → AR(1) baseline → book + benchmarks → verdict),
+  walk-forward test → book + benchmarks → verdict),
   `trend_success_verdict` (design §3.2 gate), `evaluate_all` (tables only, no
   figures yet), `run_parameters` (run_config.yaml).
 - `src/utils/` — `config.py` extended (`DEFAULT_SEED`, duration parse/convert
@@ -299,7 +297,7 @@ measured run.
   `results/weekly_fg_roll5y_val3y_qrefit_grid6_vt0.1c1rf3_2023-2025`
   (same config, same frozen panel) → **all 11 CSVs byte-identical**:
   validation_ranking / comparison / comparison_no_spy / strategy / forecast /
-  naive_forecast / oos_r2_by_year / capm / coefficients / performance_by_period
+  oos_r2_by_year / coefficients / performance_by_period
   (+_no_spy). The only `run_config.yaml` difference is the intended v2 window
   wording (data end 2026-01-01 vs 2025-12-31).
 - Test-window headline (matches reference): net Sharpe **0.5755**, maxDD
@@ -917,11 +915,11 @@ old row1_30w/row1_90w/row2_notarget part2 files remain as stale breadcrumbs).
 - **Test metrics (net):** Sharpe **1.1716** · maxDD **−11.95%** · total **+36.70%** ·
   ann ret 11.95% / ann vol 10.08% · hit 63.2%. Benchmarks: EW-16 +36.53% (Sharpe
   1.2502), SPY B&H +74.53% (maxDD −16.88%). Forecast: OOS R² 1.65%, rank-IC 0.0665
-  (t 2.47). CAPM: **alpha ≈ 0.0001 (t ≈ 0.00), beta 0.556**.
+  (t 2.47).
 - **Verdict (§3.2 gate): FAIL — SUCCESS=False** (sharpe_ok=False: 1.1716 < 1.2502
   EW bar; max_drawdown_ok=False: −11.95% < −7.79% bar = EW-16's less-negative
   drawdown (book deeper than EW, shallower than SPY's −16.88%)). The book beats no
-  benchmark on the final window; returns are essentially market beta.
+  benchmark on the final window; returns are essentially market exposure.
 - **Protocol outcome (rule 1.2.4): null result — completed experiment, not a
   promotion.** Promoted stack NOT confirmed out-of-sample. Test window now
   consumed (one draw, pre-registered); no further draws; any future iteration =
@@ -1015,7 +1013,7 @@ experiment scripts** so no second "plot image" script has to be run afterwards.
 ### Verification & backfill
 
 - Smoke run to `/tmp`: all 20 PNGs + 8 series CSVs produced; test metrics still
-  reproduce (alpha ≈ 0.0001, beta 0.556).
+  reproduce.
 - Backfilled (deterministic re-run into the same folders; existing tables and
   `_study` JSONs verified **byte-identical** — md5 diff): `test_2023-2025_promoted`
   (test 2023–2025, volwin 12w), the V2 winner row `__v2_volwin_12w` (test
@@ -1037,3 +1035,53 @@ experiment scripts** so no second "plot image" script has to be run afterwards.
 - `results/` stays git-ignored; the added code is `src/plots.py` + edits to
   `src/portfolio.py`, `src/pipeline.py`, `README.md`, `agents/plots.md`,
   `agents/current_state.md` (this entry).
+
+---
+
+## Step 9 — CAPM and AR(1) naive baseline removed (2026-11-03)
+
+### Goal (user request)
+
+Remove the CAPM regression output (`capm.csv`) and the AR(1) naive forecast
+baseline as if they were never implemented — including their source, generated
+artifacts, and doc references — without touching the actual benchmarks
+(EW-16, SPY B&H), the success gate, or the model's own OOS R² / rank-IC metrics.
+
+### What was removed (source)
+
+- `src/metrics.py` — `capm_alpha` (OLS of book net returns on SPY B&H) and
+  `oos_r2_vs_baseline` (the AR(1)-relative R²) deleted.
+- `src/models.py` — `ar1_walk_forward` deleted (per-ticker AR(1) on the lagged
+  target); the now-unused `numpy` import and `target_horizon` import removed.
+- `src/pipeline.py` — `naive = ar1_walk_forward(...)` block, `naive` key in the
+  results dict, `oos_r2_vs_ar1` in `forecast.csv`, `naive_forecast.csv`, and the
+  `capm.csv` table all removed from `evaluate_all`; imports and docstrings updated.
+- `scripts/run_backtest.py` — the `== CAPM ==` console print removed.
+
+### What was removed (generated artifacts, results/)
+
+- Deleted all 26 `capm.csv` and 26 `naive_forecast.csv` files (one per run folder).
+- Stripped the `oos_r2_vs_ar1` row from all 26 `forecast.csv` files, so the run
+  tables match what the current code produces.
+
+### Docs scrubbed
+
+- `agents/model_design.py` — AR(1) mention removed from §6 selection rule.
+- `agents/validation_and_ablation.md` — AR(1) baseline sentence (§3 mechanics),
+  the test-draw CAPM numbers, and the "(alpha ≈ 0)" verdict phrasing replaced
+  with benchmark-grounded wording.
+- `agents/current_state.md` — earlier entries' implementation lists (Step 4) and
+  the test-record CAPM numbers scrubbed; "market beta" verdict phrasing
+  reworded to "market exposure".
+
+### Verified
+
+- `py_compile` passes on all four edited source files.
+- `pytest` passes; `grep` over `src/ scripts/ tests/` shows no remaining
+  capm/ar1/naive references.
+- Smoke run of `scripts/run_backtest.py` (single spec, out to `/tmp`) completes
+  and writes no `capm.csv` / `naive_forecast.csv`; `forecast.csv` contains only
+  the model's own forecast metrics.
+- The pipeline's remaining tables (`comparison`, `strategy`, `oos_r2_by_year`,
+  `coefficients`, `performance_by_period`) are unchanged by this cleanup — the
+  removed code only wrote the deleted outputs.

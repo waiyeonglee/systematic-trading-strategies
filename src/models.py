@@ -15,14 +15,13 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from sklearn.kernel_approximation import RBFSampler
 from sklearn.linear_model import ElasticNet, Lasso, Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from labels import TARGET_COL, target_horizon
+from labels import TARGET_COL
 from utils.checks import require_columns, require_panel
 from utils.config import DEFAULT_SEED
 
@@ -227,74 +226,6 @@ def walk_forward_predict(
 
         block = eval_df.loc[eval_df.index.get_level_values("date").isin(block_dates)].copy()
         block["pred"] = model.predict(block[feature_cols].values)
-        predictions.append(block)
-
-    return pd.concat(predictions).sort_index()
-
-
-def ar1_walk_forward(
-    history: pd.DataFrame,
-    eval_df: pd.DataFrame,
-    target_col: str = TARGET_COL,
-    refit_every: str = "QE",
-    window: int | None = None,
-    embargo: int = 2,
-    lag: int | None = None,
-) -> pd.DataFrame:
-    """Naive AR(1) baseline on the target series itself.
-
-    Per ticker, fit ``y_s = a + phi * y_{s-lag}`` on the rows dated before each block
-    (minus the last ``embargo`` dates, trimmed to the most recent ``window`` dates),
-    then predict every row in the block from its lagged target value. ``lag`` defaults
-    to the label horizon; rows with no lagged value get a zero forecast.
-
-    Args:
-        history: Panel with data before ``eval_df``.
-        eval_df: Panel to predict, dated after ``history``.
-        target_col: Column the AR(1) is fit on.
-        refit_every: Block length as a pandas offset alias (same as the model).
-        window: Rolling training window in dates; ``None`` uses all past data.
-        embargo: Most recent dates dropped before each refit (same as the model).
-        lag: AR lag in bars; defaults to the label horizon via :func:`target_horizon`.
-
-    Returns:
-        ``eval_df`` plus a ``pred`` column, indexed by ``(date, ticker)``.
-    """
-    require_columns(history, [target_col], "history panel")
-    require_columns(eval_df, [target_col], "evaluation panel")
-    require_panel(history)
-    require_panel(eval_df)
-
-    lag = lag or target_horizon(target_col)
-    full = pd.concat([history, eval_df]).sort_index()
-    full["y_lag"] = full.groupby(level="ticker")[target_col].shift(lag)
-    all_dates = full.index.get_level_values("date").unique().sort_values()
-    eval_dates = eval_df.index.get_level_values("date").unique().sort_values()
-
-    predictions = []
-    for _, block_dates in pd.Series(eval_dates, index=eval_dates).groupby(pd.Grouper(freq=refit_every)):
-        if block_dates.empty:
-            continue
-        past = all_dates[all_dates < block_dates.iloc[0]]
-        past = past[:-embargo] if embargo else past
-        if window is not None:
-            past = past[-window:]
-        train_rows = full.loc[full.index.get_level_values("date").isin(past)
-                              & full["y_lag"].notna()]
-
-        coeffs = {}
-        for ticker, rows in train_rows.groupby(level="ticker"):
-            design = np.column_stack([np.ones(len(rows)), rows["y_lag"].values])
-            beta, *_ = np.linalg.lstsq(design, rows[target_col].values, rcond=None)
-            coeffs[ticker] = beta
-
-        block = eval_df.loc[eval_df.index.get_level_values("date").isin(block_dates)].copy()
-        block["y_lag"] = full.loc[block.index, "y_lag"]
-        pred = np.zeros(len(block))
-        for ticker, beta in coeffs.items():
-            mask = block.index.get_level_values("ticker") == ticker
-            pred[mask] = beta[0] + beta[1] * block.loc[mask, "y_lag"].values
-        block["pred"] = pred
         predictions.append(block)
 
     return pd.concat(predictions).sort_index()

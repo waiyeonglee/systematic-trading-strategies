@@ -89,7 +89,7 @@ accepted as-is.
   decisions and must not influence which (model, look-ahead, frequency) wins).
 - **Walk-forward mechanics (fixed, not tuned):** rolling 5y window, quarterly refit,
   **embargo = target horizon** (1 bar for a 1-week target, 4 for 4-week, 12 for
-  12-week); AR(1) naive baseline reported for reference only (never selected against).
+  12-week).
 
 | # | Hyperparameter | Levels | Mechanism / design rationale | Config / notes |
 | --- | --- | --- | --- | --- |
@@ -307,16 +307,15 @@ vt 10% · rf 3% · cap 1.0 · moomoo. Folder
 | Sharpe (net) | 1.1716 | **1.2502** | ~1.52 |
 
 Forecast quality: OOS R² 1.65% (2023 1.96% / 2024 0.81% / 2025 2.06%), RMSE 0.022,
-direction acc 55.5%, rank-IC 0.0665 (t = 2.47). CAPM vs SPY: **alpha_ann ≈ 0.0001
-(t ≈ 0.00)**, beta 0.556.
+direction acc 55.5%, rank-IC 0.0665 (t = 2.47).
 
 - **Gate verdict (§3.2): FAIL — SUCCESS=False.** sharpe_ok=False (book 1.1716 <
   bar 1.2502 = weaker benchmark Sharpe, EW-16); max_drawdown_ok=False (book
   −11.95% < bar −7.79% = EW-16's less-negative drawdown, the harder target; the
   book is deeper than EW but shallower than SPY's −16.88%). The book beats nothing
   on the final window: it misses the EW Sharpe bar and carries a deeper drawdown
-  than the better benchmark; its positive total is essentially market beta
-  (alpha ≈ 0).
+  than the better benchmark; its positive total is essentially market exposure
+  (SPY returned +74.53% over the same window).
 - **Protocol outcome (rule 1.2.4):** a null result — logged here and treated as a
   completed experiment, not a promotion. The promoted stack is **not** confirmed
   out-of-sample. No further draws on this window; any future iteration starts as a
@@ -329,7 +328,7 @@ direction acc 55.5%, rank-IC 0.0665 (t = 2.47). CAPM vs SPY: **alpha_ann ≈ 0.0
   V1 lock: **(enet_a0.001_r0.5, absolute1, weekly, ME refit)** @ 1.3370 (2017–19,
   144-spec/2016-candidate joint selection). V2 winner: **vol_window 12w** book @
   0.6574 (2020–22). Test draw (2023–25, once): **gate FAIL** — Sharpe 1.1716 <
-  1.2502 bar, maxDD −11.95% > −7.79% bar, alpha ≈ 0 → **nothing promoted, no
+  1.2502 bar, maxDD −11.95% > −7.79% bar → **nothing promoted, no
   headline stack exists.** Those metrics used the previous label formulas.
 - **Next:** rebuild the feature panel and rerun V1 and V2 with corrected labels.
   Keep historical run files, but do not use their rankings/results as current

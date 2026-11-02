@@ -90,29 +90,6 @@ def comparison_table(series: dict[str, pd.Series], ppy: int = 252) -> pd.DataFra
     return pd.DataFrame({name: perf_stats(values, ppy) for name, values in series.items()}).T
 
 
-def capm_alpha(returns: pd.Series, market: pd.Series, ppy: int = 252) -> dict:
-    """OLS regression ``r = alpha + beta * market + e``.
-
-    Args:
-        returns: Strategy returns, e.g. ``portfolio["net_ret"]``.
-        market: Market returns on the same dates, e.g. SPY buy-and-hold.
-        ppy: Periods per year, used to annualise alpha.
-
-    Returns:
-        ``{"alpha_ann", "beta", "alpha_t"}`` with plain (non-HAC) standard errors.
-    """
-    frame = pd.concat([returns, market], axis=1).dropna()
-    y = frame.iloc[:, 0].to_numpy()
-    design = np.column_stack([np.ones(len(frame)), frame.iloc[:, 1].to_numpy()])
-    coefficients, *_ = np.linalg.lstsq(design, y, rcond=None)
-    residuals = y - design @ coefficients
-    standard_errors = np.sqrt(
-        np.diag(residuals @ residuals / (len(y) - 2) * np.linalg.inv(design.T @ design))
-    )
-    return {"alpha_ann": coefficients[0] * ppy, "beta": coefficients[1],
-            "alpha_t": coefficients[0] / standard_errors[0]}
-
-
 def period_stats(returns: pd.Series, ppy: int = 252,
                  periods: dict[str, tuple[str, str]] | None = None) -> pd.DataFrame:
     """Performance split by calendar year, or by named date ranges.
@@ -138,19 +115,6 @@ def period_stats(returns: pd.Series, ppy: int = 252,
 def oos_r2(actual: np.ndarray, predicted: np.ndarray) -> float:
     """Out-of-sample R² against a zero forecast: ``1 - SSE / sum(actual²)``."""
     return float(1 - np.sum((actual - predicted) ** 2) / np.sum(actual ** 2))
-
-
-def oos_r2_vs_baseline(actual: np.ndarray, model_pred: np.ndarray,
-                       base_pred: np.ndarray) -> float:
-    """Out-of-sample R² against a naive baseline.
-
-    ``1 - SSE(model) / SSE(baseline)``: positive means the model beats the naive
-    forecast, zero means parity, negative means the naive forecast is better.
-    """
-    denominator = np.sum((actual - base_pred) ** 2)
-    if denominator == 0:
-        return float("nan")
-    return float(1 - np.sum((actual - model_pred) ** 2) / denominator)
 
 
 def forecast_metrics(preds: pd.DataFrame, target_col: str = TARGET_COL) -> dict:

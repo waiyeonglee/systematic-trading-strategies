@@ -205,8 +205,8 @@ SUCCESS_MAXDD_LE_BENCHMARK = True
 # Selection rule (validation_and_ablation.md §3, 2026-11-02 revision): **joint
 # selection** — 144 specs x 14 valid (frequency, look-ahead, refit) combos = 2016
 # candidates, ONE selection on 2017-2019, best validation net Sharpe on the plain
-# (overlay-free) base book, degenerate excluded; AR(1) naive baseline reported for
-# reference only. Valid combos obey look-ahead >= frequency AND refit_interval >=
+# (overlay-free) base book, degenerate excluded. Valid combos obey look-ahead >=
+# frequency AND refit_interval >=
 # prediction_interval: W-FRI x {weekly pairs} (3), ME x {1w, 4w cadences} (5),
 # QE x {all 6} (14 total). Walk-forward mechanics fixed (not tuned): rolling 5y,
 # embargo = horizon. The winner — (model, look-ahead, frequency, refit) — is locked

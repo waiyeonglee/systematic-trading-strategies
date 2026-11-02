@@ -16,11 +16,10 @@ import numpy as np
 import pandas as pd
 
 from labels import TARGET_COL
-from metrics import (capm_alpha, comparison_table, equal_weight_universe,
-                     forecast_metrics, max_drawdown, oos_r2_by_period,
-                     oos_r2_vs_baseline, perf_stats, period_stats, sharpe,
-                     spy_buy_and_hold, strategy_report)
-from models import ModelSpec, ar1_walk_forward, walk_forward_predict
+from metrics import (comparison_table, equal_weight_universe, forecast_metrics,
+                     max_drawdown, oos_r2_by_period, perf_stats, period_stats,
+                     sharpe, spy_buy_and_hold, strategy_report)
+from models import ModelSpec, walk_forward_predict
 from portfolio import ForecastVolParams, TrendParams, build_all_positions
 from splits import build_splits, split_panel
 from utils.artifacts import save_nested, save_parameters, save_table
@@ -228,7 +227,7 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
 
     Returns:
         Dict with ``windows``, ``train/val/test``, ``ranking``, ``selected``, ``preds``,
-        ``naive``, ``portfolio``, ``benchmarks``, ``verdict``, ``val_portfolio``,
+        ``portfolio``, ``benchmarks``, ``verdict``, ``val_portfolio``,
         ``val_preds``, ``val_benchmarks`` and ``run_tag``.
 
     Raises:
@@ -246,10 +245,6 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
                                  embargo=config.embargo,
                                  seed=config.seed,
                                  target_col=config.target_col)
-    naive = ar1_walk_forward(history, test, config.target_col,
-                             refit_every=config.refit_every,
-                             window=config.window_train_bars,
-                             embargo=config.embargo)
 
     portfolios = build_all_positions(preds, config, apply_vol_target=True)
     book = portfolios[config.strategy]
@@ -266,7 +261,7 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
 
     tag = run_tag(config, test_start, test_end, window_val)
     results = dict(windows=windows, train=train, val=val, test=test,
-                   ranking=ranking, selected=selected_name, preds=preds, naive=naive,
+                   ranking=ranking, selected=selected_name, preds=preds,
                    portfolio=book, benchmarks=benchmarks, verdict=verdict,
                    val_portfolio=val_portfolio, val_preds=selection["preds"],
                    val_benchmarks=val_benchmarks,
@@ -333,7 +328,7 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str]) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     config: PipelineConfig = results["config"]
     book = results["portfolio"]
-    preds, naive = results["preds"], results["naive"]
+    preds = results["preds"]
     benchmarks = results["benchmarks"]
     selected = results["selected"]
 
@@ -347,15 +342,9 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str]) -> Path:
     save_table(strategy_report(book, config.ppy), out_dir, "strategy")
 
     model_metrics = forecast_metrics(preds, config.target_col)
-    model_metrics["oos_r2_vs_ar1"] = oos_r2_vs_baseline(
-        preds[config.target_col].values, preds["pred"].values, naive["pred"].values)
     save_table(model_metrics, out_dir, "forecast")
-    save_table(forecast_metrics(naive, config.target_col), out_dir, "naive_forecast")
 
     save_table(oos_r2_by_period(preds, config.target_col), out_dir, "oos_r2_by_year")
-
-    capm = {selected: capm_alpha(book["net_ret"], benchmarks["SPY B&H"], config.ppy)}
-    save_table(pd.DataFrame(capm).T, out_dir, "capm")
 
     # final model: fit the selected spec on the whole history (train + val)
     history = pd.concat([results["train"], results["val"]])
