@@ -332,7 +332,8 @@ def _vol_target_scale(book_rets: list[float], params: ForecastVolParams, ppy: in
 def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
                                  initial_capital_usd: float = 100_000.0,
                                  ppy: int = 52,
-                                 apply_vol_target: bool = True) -> pd.DataFrame:
+                                 apply_vol_target: bool = True,
+                                 vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
     """Trade forecast-volatility-scaled weights, charging broker costs per order.
 
     Decisions lag the market by one bar: on a rebalance bar ``d`` the target weights are
@@ -358,6 +359,8 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
         ppy: Periods per year, used to annualize the book's realized volatility.
         apply_vol_target: Whether the vol-target overlay is applied. Selection scoring on
             the validation window passes ``False``; the traded test book uses ``True``.
+        vol_history: Optional earlier out-of-sample prediction panel used only to seed
+            forecast volatility. Its returns are never traded or included in this book.
 
     Returns:
         Frame indexed by date with ``gross_ret``, ``turnover``, ``cost``, ``net_ret``,
@@ -382,7 +385,16 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
     predictions = preds["pred"].unstack("ticker").sort_index()
     returns = preds["fwd_ret"].unstack("ticker").reindex(predictions.index)
     decisions = predictions.shift(1)  # bar d trades on the prediction dated bar d-1
-    forecast_vol = historical_forecast_vol(predictions, params)
+    if vol_history is not None and not vol_history.empty:
+        if "pred" not in vol_history:
+            raise ValueError("vol_history must contain a 'pred' column")
+        historical = vol_history["pred"].unstack("ticker").sort_index()
+        if historical.index.intersection(predictions.index).size:
+            raise ValueError("vol_history dates must precede portfolio dates")
+        vol_inputs = pd.concat([historical, predictions]).sort_index()
+    else:
+        vol_inputs = predictions
+    forecast_vol = historical_forecast_vol(vol_inputs, params).reindex(predictions.index)
     rebalances = set(rebalance_dates(predictions.index, params.rebalance))
 
     equity = initial_capital_usd
@@ -464,7 +476,8 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
 
 def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
                           initial_capital_usd: float = 100_000.0,
-                          shorting: bool = False) -> pd.DataFrame:
+                          shorting: bool = False,
+                          vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
     """Trade the trend rule, charging broker costs per executed order.
 
     Same one-bar decision lag as the forecast-vol rule: on a rebalance bar ``d`` the
@@ -480,6 +493,8 @@ def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
         params: Volatility window, rebalance cadence, broker and cost settings.
         initial_capital_usd: Starting equity; the broker minimums are absolute dollars.
         shorting: Whether negative signals may be shorted (long/short variant).
+        vol_history: Optional earlier panel whose ``return_1bar`` values seed realized
+            volatility. Its returns are never traded or included in this book.
 
     Returns:
         Frame indexed by date with ``gross_ret``, ``turnover``, ``cost``, ``net_ret``,
@@ -502,7 +517,16 @@ def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
     returns = preds["fwd_ret"].unstack("ticker").reindex(signals.index)
     same_bar = preds["return_1bar"].unstack("ticker").reindex(signals.index)
     decisions = signals.shift(1)   # bar d trades on the signal dated bar d-1
-    realized_vol = historical_realized_vol(same_bar, params)
+    if vol_history is not None and not vol_history.empty:
+        if "return_1bar" not in vol_history:
+            raise ValueError("vol_history must contain a 'return_1bar' column")
+        historical = vol_history["return_1bar"].unstack("ticker").sort_index()
+        if historical.index.intersection(signals.index).size:
+            raise ValueError("vol_history dates must precede portfolio dates")
+        vol_inputs = pd.concat([historical, same_bar]).sort_index()
+    else:
+        vol_inputs = same_bar
+    realized_vol = historical_realized_vol(vol_inputs, params).reindex(signals.index)
     rebalances = set(rebalance_dates(signals.index, params.rebalance))
 
     equity = initial_capital_usd
@@ -558,23 +582,28 @@ def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
     return frame
 
 
-def _trend_long_flat(preds: pd.DataFrame, config, *, apply_vol_target: bool = True) -> pd.DataFrame:
+def _trend_long_flat(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
+                     vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
     """Long the on-signal assets, weighted by inverse realized volatility, else cash."""
-    return build_trend_portfolio(preds, config.trend, config.initial_capital_usd)
+    return build_trend_portfolio(preds, config.trend, config.initial_capital_usd,
+                                 vol_history=vol_history)
 
 
-def _trend_long_short(preds: pd.DataFrame, config, *, apply_vol_target: bool = True) -> pd.DataFrame:
+def _trend_long_short(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
+                      vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
     """Long the on-signal assets, short the off-signal ones (long/short variant)."""
     return build_trend_portfolio(preds, config.trend, config.initial_capital_usd,
-                                 shorting=True)
+                                 shorting=True, vol_history=vol_history)
 
 
-def _forecast_vol_scaled(preds: pd.DataFrame, config, *, apply_vol_target: bool = True) -> pd.DataFrame:
+def _forecast_vol_scaled(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
+                         vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
     """Scale predictions by their own forecast volatility and trade them long and short."""
     from utils.config import periods_per_year  # deferred: utils.config is a leaf module
     ppy = periods_per_year(config.freq)
     return build_forecast_vol_portfolio(preds, config.forecast_vol, config.initial_capital_usd,
-                                        ppy=ppy, apply_vol_target=apply_vol_target)
+                                        ppy=ppy, apply_vol_target=apply_vol_target,
+                                        vol_history=vol_history)
 
 
 STRATEGIES: dict[str, Callable[..., pd.DataFrame]] = {
@@ -598,7 +627,8 @@ def configured_strategies(strategy: str) -> tuple[str, ...]:
 
 
 def build_positions(preds: pd.DataFrame, config, strategy: str | None = None,
-                    *, apply_vol_target: bool = True) -> pd.DataFrame:
+                    *, apply_vol_target: bool = True,
+                    vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
     """Turn predictions into portfolio weights using one of the configured strategies.
 
     Args:
@@ -608,6 +638,8 @@ def build_positions(preds: pd.DataFrame, config, strategy: str | None = None,
         apply_vol_target: Whether the vol-target overlay is applied to the forecast-vol
             book (ignored by the trend strategies). Model selection on the validation
             window passes ``False``.
+        vol_history: Optional earlier out-of-sample history used only to seed the
+            strategy's rolling volatility estimate.
 
     Returns:
         Portfolio frame from the selected strategy.
@@ -616,10 +648,13 @@ def build_positions(preds: pd.DataFrame, config, strategy: str | None = None,
         ValueError: if ``config.strategy`` is not registered.
     """
     rule = strategy or configured_strategies(config.strategy)[0]
-    return STRATEGIES[rule](preds, config, apply_vol_target=apply_vol_target)
+    return STRATEGIES[rule](preds, config, apply_vol_target=apply_vol_target,
+                            vol_history=vol_history)
 
 
-def build_all_positions(preds: pd.DataFrame, config, *, apply_vol_target: bool = True) -> dict[str, pd.DataFrame]:
-    """Run every configured strategy: rule name -> portfolio frame."""
-    return {name: STRATEGIES[name](preds, config, apply_vol_target=apply_vol_target)
+def build_all_positions(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
+                        vol_history: pd.DataFrame | None = None) -> dict[str, pd.DataFrame]:
+    """Run configured strategies, optionally seeding volatility from prior history."""
+    return {name: STRATEGIES[name](preds, config, apply_vol_target=apply_vol_target,
+                                   vol_history=vol_history)
             for name in configured_strategies(config.strategy)}

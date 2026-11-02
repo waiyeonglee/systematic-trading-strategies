@@ -113,6 +113,30 @@ def run_tag(config: PipelineConfig, test_start: str, test_end: str,
     return "_".join(parts)
 
 
+def _vol_warmup_predictions(history: pd.DataFrame, feature_cols: list[str],
+                           spec: ModelSpec, config: PipelineConfig) -> pd.DataFrame:
+    """Create trailing out-of-sample predictions to seed portfolio volatility only."""
+    params = config.trend if config.strategy.startswith("trend") else config.forecast_vol
+    dates = history.index.get_level_values("date").unique().sort_values()
+    if len(dates) <= params.vol_window + config.embargo:
+        return history.iloc[0:0].copy().assign(pred=pd.Series(dtype=float))
+
+    warm_dates = dates[-params.vol_window:]
+    warm_start = warm_dates[0]
+    prior_dates = dates[dates < warm_start]
+    if len(prior_dates) <= config.embargo:
+        return history.iloc[0:0].copy().assign(pred=pd.Series(dtype=float))
+
+    prior = history.loc[history.index.get_level_values("date").isin(prior_dates)]
+    warm_eval = history.loc[history.index.get_level_values("date").isin(warm_dates)]
+    return walk_forward_predict(prior, warm_eval, feature_cols, spec,
+                                refit_every=config.refit_every,
+                                window=config.window_train_bars,
+                                embargo=config.embargo,
+                                seed=config.seed,
+                                target_col=config.target_col)
+
+
 def select_model(history: pd.DataFrame, val_df: pd.DataFrame,
                  feature_cols: list[str], config: PipelineConfig) -> tuple[str, pd.DataFrame, dict]:
     """Pick the grid point with the best validation net Sharpe.
@@ -141,6 +165,7 @@ def select_model(history: pd.DataFrame, val_df: pd.DataFrame,
     if not config.grid:
         raise ValueError("select_model needs at least one model spec in config.grid")
     rows = []
+    vol_warmups: dict[str, pd.DataFrame] = {}
     for spec in config.grid:
         preds = walk_forward_predict(history, val_df, feature_cols, spec,
                                      refit_every=config.refit_every,
@@ -150,7 +175,10 @@ def select_model(history: pd.DataFrame, val_df: pd.DataFrame,
                                      target_col=config.target_col)
         degenerate = bool(float(preds.groupby(level="date")["pred"].std().mean()) < 1e-12)
         if not degenerate:
-            book = build_all_positions(preds, config, apply_vol_target=False)[config.strategy]
+            vol_warmup = _vol_warmup_predictions(history, feature_cols, spec, config)
+            vol_warmups[spec.name] = vol_warmup
+            book = build_all_positions(preds, config, apply_vol_target=False,
+                                       vol_history=vol_warmup)[config.strategy]
             net_sharpe = sharpe(book["net_ret"], config.ppy)
             gross_sharpe = sharpe(book["gross_ret"], config.ppy)
             avg_turnover = float(book["turnover"].mean())
@@ -175,7 +203,9 @@ def select_model(history: pd.DataFrame, val_df: pd.DataFrame,
                                         embargo=config.embargo,
                                         seed=config.seed,
                                         target_col=config.target_col)
-    winner_books = build_all_positions(winner_preds, config, apply_vol_target=False)
+    winner_books = build_all_positions(
+        winner_preds, config, apply_vol_target=False,
+        vol_history=vol_warmups.get(selected_name))
     selection = {"preds": winner_preds, "books": winner_books}
     return selected_name, ranking, selection
 
@@ -240,6 +270,7 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
     selected = next(spec for spec in config.grid if spec.name == selected_name)
 
     history = pd.concat([train, val])
+    test_vol_warmup = _vol_warmup_predictions(history, feature_cols, selected, config)
     preds = walk_forward_predict(history, test, feature_cols, selected,
                                  refit_every=config.refit_every,
                                  window=config.window_train_bars,
@@ -247,7 +278,8 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
                                  seed=config.seed,
                                  target_col=config.target_col)
 
-    portfolios = build_all_positions(preds, config, apply_vol_target=True)
+    portfolios = build_all_positions(preds, config, apply_vol_target=True,
+                                     vol_history=test_vol_warmup)
     book = portfolios[config.strategy]
     spy = spy_buy_and_hold(benchmark_close, book.index)
     benchmarks = {"Equal-weight": equal_weight_universe(preds), "SPY B&H": spy}
