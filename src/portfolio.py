@@ -363,7 +363,11 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
         Frame indexed by date with ``gross_ret``, ``turnover``, ``cost``, ``net_ret``,
         ``n_holdings``, ``holdings`` plus ``n_long``, ``n_short``, ``gross_exposure``,
         ``net_exposure``, ``equity_usd``, ``vol_scale``, ``leverage_blocked`` and
-        ``rebalanced``.
+        ``rebalanced``. The frame also carries two per-date, per-ticker attachments
+        (set with ``object.__setattr__`` so they never collide with column access):
+        ``weights_wide`` (the portfolio weights held into the next bar) and
+        ``orders_wide`` (executed order value in USD, signed: positive buys,
+        negative sells, zero on non-rebalance bars).
 
     Raises:
         ValueError: if the panel lacks ``pred`` or ``fwd_ret``, the starting equity is not
@@ -385,6 +389,8 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
     weights = pd.Series(0.0, index=predictions.columns)
     previous_date = None
     rows = []
+    weight_rows: list[pd.Series] = []
+    order_rows: list[pd.Series] = []
     book_rets: list[float] = []  # trailing weekly net returns for the vol-target overlay
     for date in predictions.index:
         if previous_date is not None:
@@ -443,8 +449,17 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
                          rebalanced=int(date in rebalances)))
         previous_date = date
         book_rets.append(net)
+        weight_rows.append(weights.copy())
+        order_rows.append(orders.copy())
 
-    return pd.DataFrame(rows).set_index("date")
+    frame = pd.DataFrame(rows).set_index("date")
+    weights_wide = pd.DataFrame(weight_rows, index=frame.index,
+                                columns=predictions.columns).fillna(0.0)
+    orders_wide = pd.DataFrame(order_rows, index=frame.index,
+                               columns=predictions.columns).fillna(0.0)
+    object.__setattr__(frame, "weights_wide", weights_wide)
+    object.__setattr__(frame, "orders_wide", orders_wide)
+    return frame
 
 
 def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
@@ -469,7 +484,9 @@ def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
     Returns:
         Frame indexed by date with ``gross_ret``, ``turnover``, ``cost``, ``net_ret``,
         ``n_holdings``, ``holdings`` plus ``n_long``, ``n_short``, ``gross_exposure``,
-        ``net_exposure``, ``equity_usd`` and ``rebalanced``.
+        ``net_exposure``, ``equity_usd`` and ``rebalanced``. The frame also carries the
+        ``weights_wide`` / ``orders_wide`` per-date, per-ticker attachments (same
+        convention as :func:`build_forecast_vol_portfolio`).
 
     Raises:
         ValueError: if the panel lacks ``pred``, ``fwd_ret`` or ``return_1bar``, the
@@ -492,6 +509,8 @@ def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
     weights = pd.Series(0.0, index=signals.columns)
     previous_date = None
     rows = []
+    weight_rows: list[pd.Series] = []
+    order_rows: list[pd.Series] = []
     for date in signals.index:
         if previous_date is not None:
             weights = mark_to_market_weights(weights, returns.loc[previous_date])
@@ -526,8 +545,17 @@ def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
                          net_exposure=float(held.sum()), equity_usd=equity,
                          rebalanced=int(date in rebalances)))
         previous_date = date
+        weight_rows.append(weights.copy())
+        order_rows.append(orders.copy())
 
-    return pd.DataFrame(rows).set_index("date")
+    frame = pd.DataFrame(rows).set_index("date")
+    weights_wide = pd.DataFrame(weight_rows, index=frame.index,
+                                columns=signals.columns).fillna(0.0)
+    orders_wide = pd.DataFrame(order_rows, index=frame.index,
+                               columns=signals.columns).fillna(0.0)
+    object.__setattr__(frame, "weights_wide", weights_wide)
+    object.__setattr__(frame, "orders_wide", orders_wide)
+    return frame
 
 
 def _trend_long_flat(preds: pd.DataFrame, config, *, apply_vol_target: bool = True) -> pd.DataFrame:
