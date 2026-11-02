@@ -8,6 +8,7 @@ against SPY buy-and-hold and an equal-weight-16 benchmark, with the success gate
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -276,6 +277,50 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
     return results
 
 
+# Report phases are defined by the run's test-window span; the pipeline publishes
+# figures automatically for any run whose span matches one. Each entry maps the
+# span to (phase folder, window whose figures it holds):
+#   validation_phase_1 -> the V1 winner combo's selection window (validation_* =
+#     2017-2019; the combo's test window is only a Jan-2020 byproduct);
+#   validation_phase_2 -> the V2 winner row's measurement window (test_* =
+#     2020-2022, the span the phase-2 ablation was ranked on);
+#   test -> the promoted test draw's measurement window (test_* = 2023-2025).
+REPORT_PHASES = {
+    ("2020-01-01", "2020-01-31"): ("validation_phase_1", "validation"),
+    ("2020-01-01", "2022-12-31"): ("validation_phase_2", "test"),
+    ("2023-01-01", "2025-12-31"): ("test", "test"),
+}
+
+
+def report_phase_for(results: dict) -> tuple[str, str] | None:
+    """The report phase of a run (folder, window), or ``None`` if its test span
+    is not one of the report phases' windows."""
+    t0, t1 = results["windows"]["test"]
+    return REPORT_PHASES.get((str(t0), str(t1)))
+
+
+def publish_report_figures(out_dir: Path, phase: str, window: str) -> Path:
+    """Copy the phase's 10 figures to ``results/plots/<phase>/`` (window prefix stripped).
+
+    The canonical report figures live in ``results/plots/<phase>/``; the per-run
+    ``plots/`` folder is transient and removed by :func:`evaluate_all`. Files are
+    named ``01_<stem>.png`` … ``10_<stem>.png`` because the folder name already
+    identifies the phase.
+    """
+    from utils.paths import RESULTS_DIR
+
+    src = Path(out_dir) / "plots"
+    dst = RESULTS_DIR / "plots" / phase
+    dst.mkdir(parents=True, exist_ok=True)
+    figures = sorted(src.glob(f"{window}_*.png"))
+    if not figures:
+        raise FileNotFoundError(
+            f"no {window}_*.png figures in {src} to publish for {phase!r}")
+    for png in figures:
+        shutil.copy2(png, dst / png.name.removeprefix(f"{window}_"))
+    return dst
+
+
 def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str]) -> Path:
     """Write the run's tables (validation ranking, comparison, forecasts, coefficients).
 
@@ -338,11 +383,20 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str]) -> Path:
 
     save_parameters(run_parameters(results), out_dir)
 
-    # time series + report figures (both windows), so plots ship with every run
+    # time series + report figures: series stay in the run folder, the canonical
+    # report figures go to results/plots/<phase>/ (auto-determined by the test
+    # window); the transient per-run plots/ folder is removed afterwards.
     save_series(out_dir, "test", book, preds, benchmarks)
     save_series(out_dir, "val", results["val_portfolio"], results["val_preds"],
                 results["val_benchmarks"])
     plot_run(results, out_dir)
+
+    phase = report_phase_for(results)
+    if phase:
+        publish_report_figures(out_dir, *phase)
+    plots_dir = out_dir / "plots"
+    if plots_dir.exists():
+        shutil.rmtree(plots_dir)
 
     print_summary(results)
     return out_dir

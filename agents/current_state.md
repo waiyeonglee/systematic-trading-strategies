@@ -987,9 +987,12 @@ experiment scripts** so no second "plot image" script has to be run afterwards.
   and signed order USD) to the book via `object.__setattr__`.
 - **`src/pipeline.py`** — `select_model` returns the winner's validation-window
   preds + books; `run_pipeline` carries `val_portfolio` / `val_preds` /
-  `val_benchmarks`; `evaluate_all` writes `plots/` (both windows) + `series/`
-  (book / weights / orders / benchmarks) on every run. No CLI changes — every
-  `run_backtest.py` / `run_study.py` run now ships plots automatically.
+  `val_benchmarks`; `evaluate_all` writes `series/` (book / weights / orders /
+  benchmarks) + renders `plots/` on every run, then **auto-publishes** the
+  phase's 10 figures to `results/plots/<phase>/` (determined from the run's test
+  window by `report_phase_for` / `REPORT_PHASES`) and **removes the transient
+  per-run `plots/`** — so no flag, no CLI change, and no stale figures in
+  individual config folders.
 - **`agents/plots.md`** — figure list, why each belongs in the report, the
   two-window convention, and how to regenerate.
 
@@ -1003,10 +1006,13 @@ experiment scripts** so no second "plot image" script has to be run afterwards.
   2020–2022, net Sharpe 0.657), and the V1 winner combo folder
   (`...__v1_la1_freq1w_mrefit`), whose `validation_*` figures cover the 2017–2019
   selection window (net Sharpe 1.337, matching the lock).
-- **Scope per owner: the suite is kept only for those three best-selected runs
-  (one per validation phase + the test draw); `plots/` + `series/` were removed
-  from the other 10 V2 rows (tables untouched).** The other 13 V1 combo folders
-  keep tables only; they get plots automatically on any future run.
+- **Scope per owner (final, 2026-11-02):** the canonical figures live **only**
+  under `results/plots/validation_phase_1/`, `validation_phase_2/`, `test/` (10
+  PNGs each, window prefix stripped, auto-published); per-run `plots/` are
+  transient and removed; the suite is kept for the three best-selected runs only,
+  and the other 10 V2 rows keep tables only (their stale `plots/`/`series/` were
+  deleted earlier). Series stay per run folder under `series/`. Re-running the
+  three designated commands (no flag) regenerates identical figures + tables.
 
 ### Notes
 

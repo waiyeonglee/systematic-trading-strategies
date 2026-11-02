@@ -2,37 +2,40 @@
 
 Report figures are generated **inside the experiment scripts** (`src/plots.py`,
 invoked by `pipeline.evaluate_all` right after the tables are written), so there
-is no separate "plot image" script to run afterwards:
+is no separate "plot image" script and **no flag to pass** — the pipeline decides
+the report phase automatically from the run's test window.
+
+## Where the figures live
 
 ```
-results/<run-folder>/
-  plots/                       # 20 PNGs (10 figures x test + validation windows)
-    test_01_cumulative_returns.png
-    test_02_gross_vs_net.png
-    ...
-    validation_01_cumulative_returns.png
-    ...
-  series/                      # raw per-bar / per-ticker series behind the figures
-    test_book.csv              # gross_ret, turnover, cost, net_ret, exposure, ...
-    test_weights.csv           # per-date x per-ticker weights held (long +, short -)
-    test_orders.csv            # per-date x per-ticker order USD (signed: buy/sell)
-    test_benchmarks.csv        # Equal-weight / SPY B&H returns
-    val_*.csv                  # same five files for the validation window
+results/plots/
+  validation_phase_1/           # V1 winner combo (10 PNGs, no window prefix)
+  validation_phase_2/           # V2 winner row    (10 PNGs, no window prefix)
+  test/                         # promoted test draw (10 PNGs, no window prefix)
+    01_cumulative_returns.png   # ... 10_oos_r2_by_year.png
 ```
 
-**Scope (per project owner, 2026-11-02):** the suite is retained for the **three
-best-selected runs only** — one per validation phase plus the test draw. All
-other folders are tables-only; their `plots/` + `series/` were removed and are
-regenerated on demand by re-running the row's command.
+- The canonical report figures live **only** under `results/plots/<phase>/`,
+  named `01_<stem>.png` … `10_<stem>.png` (the folder name already identifies the
+  phase, so the `test_`/`validation_` window prefix is stripped).
+- The per-run `plots/` folder is **transient**: `evaluate_all` renders it, copies
+  the phase's window into `results/plots/<phase>/`, then removes it — individual
+  run folders never keep stale plots.
+- Per-run **series** (the data behind the figures) still stay in each run folder
+  under `series/` (8 CSVs: book / weights / orders / benchmarks per window), so a
+  report can re-plot or extend any figure without re-running the simulation.
 
-| phase | run folder | figures cover |
+## Which run feeds which phase (automatic)
+
+| phase | published when the run's test window is | figures held |
 | --- | --- | --- |
-| V1 validation (2017–2019) | `results/weekly_fg_roll5y_val3y_mrefit_grid144_rweekly_2020-2020__v1_la1_freq1w_mrefit/` | `validation_*` = 2017–2019 selection window (net Sharpe 1.337); `test_*` = Jan-2020 byproduct |
-| V2 validation (2020–2022) | `results/weekly_fg_roll5y_val3y_mrefit_enet_a0.001_r0.5_vt0.1c1rf3_rweekly_2020-2022__v2_volwin_12w/` | `test_*` = 2020–2022 (net Sharpe 0.657); `validation_*` = 2017–2019 |
-| Test (2023–2025) | `results/test_2023-2025_promoted/` | `test_*` = 2023–2025 (net Sharpe 1.172, gate FAIL); `validation_*` = 2020–2022 |
+| `validation_phase_1` | `2020-01-01` … `2020-01-31` (V1 winner combo) | the combo's **validation** window = 2017–2019 selection (net Sharpe 1.337); its `test_*` is only a Jan-2020 byproduct |
+| `validation_phase_2` | `2020-01-01` … `2022-12-31` (V2 winner row) | the row's **test** window = 2020–2022, the span the phase-2 ablation was ranked on (net Sharpe 0.657) |
+| `test` | `2023-01-01` … `2025-12-31` (promoted draw) | the draw's **test** window = 2023–2025 (net Sharpe 1.172, gate FAIL) |
 
-The `series/` files let a report re-plot or extend any figure without re-running
-the simulation.
+Runs whose test window matches none of these produce no report figures at all
+(tables + series only). The mapping lives in `pipeline.report_phase_for`
+(`REPORT_PHASES` in `src/pipeline.py`).
 
 ## Why two windows per run
 
@@ -47,7 +50,8 @@ the **validation** window, so both windows are plotted:
 For the executed study: the V1 winner folder → `validation_*` = 2017–2019
 selection window (+ a 4-bar Jan-2020 byproduct as `test_*`); the V2 winner and
 promoted test draws → `validation_*` = 2017–2019 / 2020–2022 and `test_*` =
-2020–2022 / 2023–2025.
+2020–2022 / 2023–2025. Only the phase's window (see the table above) is kept in
+`results/plots/<phase>/`; the other window's figures are discarded.
 
 ## The ten figures (per window)
 
@@ -83,18 +87,15 @@ These feed figures 04/06/07 and are also dumped to `series/`.
 
 ## Regeneration
 
-Plots are produced automatically on every run:
+Plots are produced automatically on every run — **no flag, no second script**:
 
 ```bash
-python scripts/run_backtest.py ...        # any run -> plots/ + series/
-python scripts/run_study.py v1            # all 14 V1 combo folders get plots
-python scripts/run_study.py v2            # all 11 V2 row folders get plots
+python scripts/run_backtest.py --test-start 2023-01-01 --test-end 2025-12-31 ...   # -> results/plots/test/
+python scripts/run_backtest.py --test-start 2020-01-01 --test-end 2022-12-31 ...   # -> results/plots/validation_phase_2/
+python scripts/run_backtest.py --test-start 2020-01-01 --test-end 2020-01-31 ...   # -> results/plots/validation_phase_1/
 ```
 
-If a folder should **not** carry the suite (non-best-selected runs), remove its
-`plots/` + `series/` after the run; the tables are unaffected. Old folders (from
-before this step) can be refreshed by re-running their exact command into the
-same `--out-dir` / phase — the run is deterministic, so the existing tables are
-rewritten byte-identical and only `plots/` + `series/` are (re)created (verified
-2026-11-02 on the V1 winner combo, the V2 winner volwin_12w row, and
-`test_2023-2025_promoted`).
+Re-running a designated run overwrites that phase folder with identical figures
+(the run is deterministic, and existing tables are rewritten byte-identical —
+verified 2026-11-02 on all three designated runs). Non-phase runs simply write no
+figures; per-run `plots/` is always removed by the pipeline.
