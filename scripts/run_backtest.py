@@ -262,6 +262,7 @@ def main() -> None:
           f"{pd.read_csv(out_dir / 'comparison.csv', index_col=0)}")
     print(f"\n== Forecast ==\n{pd.read_csv(out_dir / 'forecast.csv', index_col=0)['value']}")
     print(f"\n== OOS R2 by year ==\n{pd.read_csv(out_dir / 'oos_r2_by_year.csv', index_col=0)['value']}")
+    print(f"\n== OOS R2 vs SPY / EW-16 ==\n{pd.read_csv(out_dir / 'oos_r2_benchmarks.csv', index_col=0)}")
     print(f"\nresults saved to {out_dir}")
 
 

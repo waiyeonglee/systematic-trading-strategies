@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from labels import TARGET_COL
+from labels import TARGET_COL, target_horizon
 from utils.checks import require_columns
 
 
@@ -154,3 +154,51 @@ def oos_r2_by_period(preds: pd.DataFrame, target_col: str = TARGET_COL) -> pd.Se
     return preds.groupby(years).apply(
         lambda group: oos_r2(group[target_col].values, group["pred"].values)
     )
+
+
+def oos_r2_benchmarks(preds: pd.DataFrame, benchmark_close: pd.Series,
+                      target_col: str = TARGET_COL) -> pd.DataFrame:
+    """Model OOS R² relative to SPY / Equal-weight-16 as the benchmark forecast.
+
+    ``R² = 1 - SSE_model / SSE_bench`` on the identical ``(date, ticker)`` panel,
+    where ``SSE_model = sum((y - pred)²)`` uses the pipeline's own predictions
+    and ``SSE_bench`` uses the benchmark's forecast over the same label window:
+
+    * ``spy`` — SPY's realised return over the label window
+      (``price[t+H+1] / price[t+1] - 1`` for an ``H``-bar target), applied to
+      every ticker on each date;
+    * ``ew16`` — the cross-sectional mean of the realised target per date (the
+      equal-weight-16 portfolio's return over the same window).
+
+    Positive values mean the model's forecasts have lower squared error than the
+    benchmark forecast; negative values mean the benchmark forecast is better.
+
+    Returns one row per period — ``pooled`` plus each calendar year in the panel —
+    with one column per benchmark.
+    """
+    require_columns(preds, ["pred", target_col], "predictions panel")
+    preds = preds.sort_index()
+    dates = preds.index.get_level_values("date")
+    actual = preds[target_col].to_numpy(dtype=float)
+    model = preds["pred"].to_numpy(dtype=float)
+    horizon = target_horizon(target_col)
+
+    # Benchmark forecasts over the same label window as the target.
+    spy_fwd = benchmark_close.shift(-(horizon + 1)) / benchmark_close.shift(-1) - 1
+    spy = spy_fwd.reindex(dates).to_numpy(dtype=float)
+    ew = preds[target_col].groupby(level="date").mean().reindex(dates).to_numpy(dtype=float)
+
+    years = dates.year.to_numpy()
+    out = {}
+    for name, bench in (("oos_r2_vs_spy", spy), ("oos_r2_vs_ew16", ew)):
+        finite = np.isfinite(actual) & np.isfinite(bench)
+        sse_model = np.sum((actual[finite] - model[finite]) ** 2)
+        sse_bench = np.sum((actual[finite] - bench[finite]) ** 2)
+        rows = {"pooled": float(1 - sse_model / sse_bench)}
+        for year in sorted(set(years)):
+            mask = (years == year) & finite
+            sse_model_y = np.sum((actual[mask] - model[mask]) ** 2)
+            sse_bench_y = np.sum((actual[mask] - bench[mask]) ** 2)
+            rows[str(year)] = float(1 - sse_model_y / sse_bench_y)
+        out[name] = rows
+    return pd.DataFrame(out).rename_axis("period")

@@ -17,8 +17,9 @@ import pandas as pd
 
 from labels import TARGET_COL
 from metrics import (comparison_table, equal_weight_universe, forecast_metrics,
-                     max_drawdown, oos_r2_by_period, perf_stats, period_stats,
-                     sharpe, spy_buy_and_hold, strategy_report)
+                     max_drawdown, oos_r2_benchmarks, oos_r2_by_period,
+                     perf_stats, period_stats, sharpe, spy_buy_and_hold,
+                     strategy_report)
 from models import ModelSpec, walk_forward_predict
 from portfolio import ForecastVolParams, TrendParams, build_all_positions
 from splits import build_splits, split_panel
@@ -265,7 +266,8 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
                    portfolio=book, benchmarks=benchmarks, verdict=verdict,
                    val_portfolio=val_portfolio, val_preds=selection["preds"],
                    val_benchmarks=val_benchmarks,
-                   run_tag=tag, window_val=window_val, config=config)
+                   run_tag=tag, window_val=window_val, config=config,
+                   benchmark_close=benchmark_close)
 
     if out_dir is not None:
         evaluate_all(out_dir, results, feature_cols)
@@ -345,6 +347,9 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str]) -> Path:
     save_table(model_metrics, out_dir, "forecast")
 
     save_table(oos_r2_by_period(preds, config.target_col), out_dir, "oos_r2_by_year")
+
+    save_table(oos_r2_benchmarks(preds, results["benchmark_close"], config.target_col),
+               out_dir, "oos_r2_benchmarks")
 
     # final model: fit the selected spec on the whole history (train + val)
     history = pd.concat([results["train"], results["val"]])

@@ -1085,3 +1085,54 @@ artifacts, and doc references — without touching the actual benchmarks
 - The pipeline's remaining tables (`comparison`, `strategy`, `oos_r2_by_year`,
   `coefficients`, `performance_by_period`) are unchanged by this cleanup — the
   removed code only wrote the deleted outputs.
+
+---
+
+## Step 10 — OOS R² benchmarked vs SPY / EW-16, merged into the test run (2026-11-03)
+
+### Goal (user request)
+
+The test-phase OOS R² of the promoted model/config should be benchmarked against
+SPY and the Equal-weight-16 ETF portfolio — same statistic, same panel — and the
+benchmark computation should live in the script where the model executes on the
+test set (one fresh run, no backward compatibility).
+
+### What was added
+
+- `src/metrics.py` — `oos_r2_benchmarks(preds, benchmark_close, target_col)`:
+  the **model's OOS R² relative to each benchmark forecast** —
+  `R² = 1 - SSE_model / SSE_bench` on the identical (date, ticker) test panel,
+  where `SSE_model = Σ(y - pred)²` uses the pipeline's own predictions and
+  `SSE_bench` uses the benchmark's forecast over the same label window:
+  `spy` = SPY's realised return over the label window
+  (`price[t+H+1]/price[t+1]-1`, applied to every ticker) ·
+  `ew16` = the cross-sectional mean of the realised target per date (the EW-16
+  portfolio's return over the same window). Positive ⇒ model beats the benchmark
+  forecast; negative ⇒ benchmark forecast better. Returns `pooled` +
+  per-calendar-year rows, one column per benchmark.
+- `src/pipeline.py` — `evaluate_all` now writes `oos_r2_benchmarks.csv` next to
+  `forecast.csv` / `oos_r2_by_year.csv` (benchmark_close carried in the results dict).
+- `scripts/run_backtest.py` — console prints the SPY/EW-16 table after the forecast
+  metrics; no separate analysis script needed.
+
+### Fresh test measurement (corrected labels — a remeasurement, not a new holdout)
+
+Ran the promoted stack (enet_a0.001_r0.5 · absolute1 · weekly · ME refit · volwin 12w)
+fresh on 2023–2025 under the current feature/label code; results in
+`results/test_2023-2025_fresh/` (the pre-registered draw in
+`test_2023-2025_promoted/` used the pre-Standardization labels and stays archived).
+
+| period | OOS R² model wrt SPY | OOS R² model wrt EW-16 |
+| --- | --- | --- |
+| pooled | -0.1070 | -0.5060 |
+| 2023 | -0.2391 | -0.5914 |
+| 2024 | -0.0896 | -0.4426 |
+| 2025 | -0.0100 | -0.4817 |
+
+Cross-check against the absolute forecast metrics (model OOS R² 0.0160 vs zero;
+SPY-as-forecast 0.1112, EW-16-as-forecast 0.3466, both vs zero): the relative
+values reconcile exactly (`1 - 0.9840/0.8888 = -0.107` and
+`1 - 0.9840/0.6534 = -0.506`). Interpretation: the model's 1-week forecasts have
+~11% higher squared error than using SPY's return as the forecast, and ~51%
+higher than using the EW-16 mean return — consistent with the gate FAIL
+(book trails both benchmarks on 2023–2025).
