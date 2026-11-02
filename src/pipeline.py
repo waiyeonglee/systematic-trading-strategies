@@ -68,7 +68,7 @@ class PipelineConfig:
     initial_capital_usd: float = 100_000.0
     refit_every: str = "QE"
     window_train: str | None = "5y"
-    embargo: int = 2
+    embargo: int = 12
     grid: tuple[ModelSpec, ...] = ()
     seed: int = DEFAULT_SEED
     target_col: str = TARGET_COL
