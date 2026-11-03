@@ -1,0 +1,63 @@
+{
+  "phase": "joint-ranking",
+  "criterion": "regime",
+  "window": [
+    "2017-01-01",
+    "2022-12-31"
+  ],
+  "seed": 5205,
+  "candidates": {
+    "specs": 93,
+    "combos": 14,
+    "books": 45,
+    "scored": 58590,
+    "regime_passed": 7181
+  },
+  "rule": {
+    "min_pos_years": 5,
+    "min_up_capture": 0.4,
+    "rank_by": "yr_sharpe_min (worst calendar year), then net_sharpe"
+  },
+  "model": {
+    "name": "rff_a0.01_d100_g0.01",
+    "family": "rff",
+    "alpha": 0.01,
+    "l1_ratio": null,
+    "rff_dim": 100.0,
+    "gamma": 0.01
+  },
+  "combo": {
+    "target": "absolute4",
+    "look_ahead": 4,
+    "rebalance": "4w",
+    "refit": "QE"
+  },
+  "book": {
+    "name": "w04_vtoff_rf3_cap1.0",
+    "vol_window": 4,
+    "vol_target": null,
+    "vol_rf": 0.03,
+    "vol_cap": 1.0,
+    "lev_fee": 0.0
+  },
+  "metrics": {
+    "net_sharpe": 1.290645948917537,
+    "gross_sharpe": 1.3313964339699529,
+    "max_drawdown": -0.11105542560408088,
+    "total_return": 1.228811996403984,
+    "ann_return": 0.14242289163359412,
+    "ann_vol": 0.10774158694954815,
+    "hit_rate": 0.597444089456869,
+    "avg_turnover": 0.2822619119780576
+  },
+  "regime": {
+    "pos_years": 6,
+    "n_years": 6,
+    "yr_sharpe_min": 0.4055897711790067,
+    "up_capture": 0.6058518224168855,
+    "down_capture": 0.29557280724127355
+  },
+  "cache": "results/_study/predictions/2017-01-01_2022-12-31/weekly_la4_refitQE/rff_a0.01_d100_g0.01.npz",
+  "ranking": "results/_study/validation_ranking_regime.csv",
+  "note": "best worst-calendar-year Sharpe among the candidates clearing the pre-registered regime-stratified rule; promotion still requires the pre-registered ADR and the single test draw"
+}

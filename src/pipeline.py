@@ -236,7 +236,8 @@ def trend_success_verdict(book_net_ret: pd.Series,
 def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: pd.Series,
                  config: PipelineConfig, test_start: str = "2023-01-01",
                  test_end: str = "2025-12-31", window_val: str = "3y",
-                 out_dir: Path | None = None) -> dict:
+                 out_dir: Path | None = None,
+                 report_prefix: str = "") -> dict:
     """Select on the validation window and measure the winner once on the test window.
 
     Args:
@@ -247,6 +248,9 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
         test_start / test_end / window_val: Split bounds; validation is the
             ``window_val`` span before ``test_start``.
         out_dir: Where tables are saved; ``None`` skips persistence.
+        report_prefix: Prepended to the published figure folders
+            (``results/plots/<report_prefix><phase>/``) so a second selection
+            criterion can keep its own figure set.
 
     Returns:
         Dict with ``windows``, ``train/val/test``, ``ranking``, ``selected``, ``preds``,
@@ -296,7 +300,7 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
                    benchmark_close=benchmark_close)
 
     if out_dir is not None:
-        evaluate_all(out_dir, results, feature_cols)
+        evaluate_all(out_dir, results, feature_cols, report_prefix=report_prefix)
     return results
 
 
@@ -338,13 +342,15 @@ def publish_report_figures(out_dir: Path, phase: str, window: str) -> Path:
     return dst
 
 
-def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str]) -> Path:
+def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
+                 report_prefix: str = "") -> Path:
     """Write the run's tables (validation ranking, comparison, forecasts, coefficients).
 
     Args:
         out_dir: Destination folder for the CSV tables.
         results: Output of :func:`run_pipeline`.
         feature_cols: Model input columns (excludes labels and book helpers).
+        report_prefix: Prepended to the published figure folders.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -406,7 +412,7 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str]) -> Path:
     plot_run(results, out_dir)
 
     for phase, window in report_phases_for(results):
-        publish_report_figures(out_dir, phase, window)
+        publish_report_figures(out_dir, f"{report_prefix}{phase}", window)
     plots_dir = out_dir / "plots"
     if plots_dir.exists():
         shutil.rmtree(plots_dir)

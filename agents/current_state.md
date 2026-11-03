@@ -1582,6 +1582,63 @@ the migration history.
 ### Verified
 - `pytest` 12 passed; no seed digit remains in any docstring or doc — only
   `utils.config.DEFAULT_SEED` (source of truth) and the course code `DSA5205`.
+
+---
+
+## Step 19 — Regime-stratified selection criterion, both records kept (2026-11-04)
+### Goal (user request)
+After reviewing the figures the user judged the model/book selection sound but the
+validation regime too distant from the test: "implement the regime-stratified and pick
+the best val and corresponding effect on the test from there", keeping the old results
+for the report.
+### Diagnosis first (read-only)
+- **Payoff shape flipped.** Up-capture against EW-16 fell 0.60 (val) -> 0.21 (test)
+  while down-capture stayed ~0.27: the book was convex inside validation (it paid for
+  protection) and concave on the test window (all three years up, two of them for the
+  benchmarks). Validation Sharpe 1.34 came from 2018/2020/2022.
+- **Book selection is mostly noise.** Across the 45 cell books of one model, Sharpe
+  correlates 0.27 Pearson / 0.14 Spearman between the two validation halves and 0.05
+  with the test window; the winner ranks 8/45 in 2017-19 and 22/45 on the test.
+- **Signal is weak everywhere.** Winner's validation rank-IC by year: +0.154, -0.018,
+  -0.062, +0.120, +0.086, -0.012 (pooled 0.045, t 2.3). Re-running the top six models
+  with the winning book on 2023-2025 gives 0.158 / 0.065 / 0.047 / 0.045 / 0.285 /
+  -0.008 — no model choice transfers.
+### What changed
+- **`scripts/study_worker.py`** — `regime_metrics()` (per-year Sharpe, `pos_years`,
+  `yr_sharpe_min`, up/down capture vs the equal-weight benchmark) and `regime_pass()`
+  with `REGIME_MIN_POS_YEARS = 5`, `REGIME_WINDOW_YEARS = 6`, `REGIME_MIN_UP_CAPTURE =
+  0.40`. Every ranking row now carries the five regime metrics plus `regime_pass`.
+  The consistency test is the **5/6 rate**, not a raw count, so it generalises to
+  other window lengths.
+- **`scripts/run_study.py`** — `--criterion {raw,regime}` for both `rank` and `test`.
+  `raw` is unchanged byte-for-byte (same filenames); `regime` writes
+  `validation_ranking_regime.csv` / `validation_winner_regime.json` /
+  `run_parameters_regime.json`, prints a sensitivity ladder (rows profitable in 6/6,
+  5/6, 4/6 years), and ranks the survivors by worst-year Sharpe (maximin).
+- **`src/pipeline.py`** — `report_prefix` threaded through `run_pipeline` /
+  `evaluate_all`, so the regime draw publishes `results/plots/regime_{test,val}/`
+  beside the untouched `results/plots/{test,val}/`.
+- Tests: `test_regime_metrics_and_gate` + `test_regime_gate_thresholds_...` (14 passed).
+- Docs: `agents/validation_and_ablation.md` §3.1 (the two criteria and why
+  down-capture is **not** gated), §4 (files), §5.2 (record), §6; `README.md`;
+  `agents/model_design.py` §6.
+### Measured
+- `rank --criterion regime` (≈4.6 min): gate passes **7,181 of 55,935** live rows.
+- **The gate alone changes nothing** — the raw winner is profitable in 6/6 years
+  (worst year +0.27) with up-capture 0.60, so it passes. The maximin objective is what
+  moves the pick.
+- **Regime winner:** `rff_a0.01_d100_g0.01` · abs4 · 4w · QE · `w04_vtoff_rf3_cap1.0`
+  — val Sharpe **1.2906** (vs 1.3361), worst year **+0.41** (vs +0.27), up/down
+  capture 0.61 / 0.30, maxDD −11.11%.
+- **Test draw:** net Sharpe **−0.0750**, maxDD −12.77%, total −2.66%, OOS R² −0.0509,
+  rank-IC 0.0919 (t 3.42) -> gate **FAIL**, worse than the raw pick (0.1595 /
+  −10.42% / +2.69%).
+- **Why:** the two picks behave like the same book (test return correlation **0.96**,
+  same sign in 89% of weeks). Regime-stratification changed the regularisation and the
+  vol cell, not the signal. Conclusion: the §5.1 failure is **signal decay**, not
+  year-concentration in the selection.
+- 2023-2025 now carries **three** measurements; documented as a remeasurement window.
+
 - No stale references to the deleted script outside this history log.
 
 

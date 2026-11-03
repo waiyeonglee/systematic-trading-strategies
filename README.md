@@ -66,6 +66,13 @@ python scripts/run_study.py rank                # ONE joint ranking over the com
                                                 # come from the prediction cache)
 python scripts/run_study.py test                # single pre-registered draw (2023-2025)
                                                 # of the ranking winner
+python scripts/run_study.py rank --criterion regime   # same space, regime-stratified
+                                                # rule: profitable in >=5/6 years and
+                                                # up-capture >=0.40, then the best
+                                                # worst-year Sharpe
+                                                # -> validation_ranking_regime.csv
+python scripts/run_study.py test --criterion regime   # draw of that winner; figures
+                                                # in results/plots/regime_{test,val}/
 python scripts/run_study.py rank --jobs 4       # worker processes (0 = min(8, cpu))
 ```
 

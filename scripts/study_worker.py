@@ -38,6 +38,63 @@ VOL_TARGETS = ((0.20, "vt20"), (0.10, "vt10"), (None, "vtoff"))   # annualized t
 VOL_RF_RATES = (0.03,)                                       # cash-sleeve rate, ann.
 LEV_CAPS = ((1.0, 0.0), (2.0, 0.068), (3.0, 0.068))           # cap, borrow fee, ann.
 
+# Regime-stratified selection rule (pre-registered before the run, see
+# agents/validation_and_ablation.md §3). A candidate must earn its Sharpe in every
+# kind of year rather than in the drawdown-rich ones only: profitable in at least
+# REGIME_MIN_POS_YEARS of the validation calendar years AND keeping at least
+# REGIME_MIN_UP_CAPTURE of the benchmark's upside in its up weeks. Down-capture is
+# reported but not gated — requiring extra protection is exactly the bias that
+# produced the failed selection (it favours defensive cells that only pay off in
+# bear years).
+REGIME_MIN_POS_YEARS = 5          # of REGIME_WINDOW_YEARS validation years
+REGIME_WINDOW_YEARS = 6           # 2017..2022 — the rule is the 5/6 rate, so it
+                                  # generalises to any window length
+REGIME_MIN_UP_CAPTURE = 0.40
+
+
+def regime_metrics(net_ret: pd.Series, benchmark: pd.Series, ppy: int) -> dict:
+    """Per-year consistency and up/down capture of a book versus the benchmark.
+
+    Args:
+        net_ret: The book's per-bar net returns (the validation window).
+        benchmark: The equal-weight benchmark's per-bar returns, same index.
+        ppy: Periods per year (52 for weekly bars).
+
+    Returns:
+        ``pos_years`` / ``n_years`` / ``yr_sharpe_min`` / ``up_capture`` /
+        ``down_capture``. Capture ratios are means in benchmark-up (down) bars, so
+        ``up_capture`` near 1 means the book rode the upside and ``down_capture``
+        near 0 means it side-stepped the downside.
+    """
+    yearly = [sharpe(group, ppy) for _, group in net_ret.groupby(net_ret.index.year)]
+    finite = [value for value in yearly if value == value]
+    up = benchmark > 0.0
+    up_mean = float(benchmark[up].mean()) if up.any() else math.nan
+    down_mean = float(benchmark[~up].mean()) if (~up).any() else math.nan
+    return {
+        "pos_years": int(sum(1 for value in finite if value > 0)),
+        "n_years": len(finite),
+        "yr_sharpe_min": float(min(finite)) if finite else math.nan,
+        "up_capture": (float(net_ret[up].mean()) / up_mean
+                       if up_mean and up_mean == up_mean else math.nan),
+        "down_capture": (float(net_ret[~up].mean()) / down_mean
+                         if down_mean else math.nan),
+    }
+
+
+def regime_pass(metrics: dict) -> bool:
+    """Whether a scored row clears the regime-stratified rule in §3.
+
+    The consistency test is the pre-registered **5-of-6 rate**, not a raw count, so
+    the same rule applies to any window length.
+    """
+    years = metrics["n_years"]
+    if not years or years != years:            # empty window / degenerate row
+        return False
+    return bool(metrics["pos_years"] * REGIME_WINDOW_YEARS
+                >= REGIME_MIN_POS_YEARS * years
+                and metrics["up_capture"] >= REGIME_MIN_UP_CAPTURE)
+
 
 def _book_note(window: int, target: float | None, rf: float, cap: float,
                fee: float) -> str:
@@ -115,6 +172,7 @@ def score_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
                          refresh=refresh, verbose=False)
 
     base = _candidate_row(spec, rebalance, horizon, refit)
+    benchmark = preds["fwd_ret"].groupby(level="date").mean()
     rows = []
     vol_cache: dict[tuple[int, int], pd.DataFrame] = {}
     simulated: dict[tuple, dict] = {}
@@ -141,6 +199,9 @@ def score_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
                        "ann_vol": stats["ann_vol"],
                        "hit_rate": stats["hit_rate"],
                        "avg_turnover": float(book["turnover"].mean())}
+            metrics.update(regime_metrics(book["net_ret"],
+                                          benchmark.reindex(book.index), config.ppy))
+            metrics["regime_pass"] = regime_pass(metrics)
             simulated[effective_key(knobs)] = metrics
         row = dict(base, book=name, degenerate=False, **knobs)
         row.update(metrics)
@@ -166,7 +227,9 @@ def _degenerate_row(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
                **knobs)
     row.update(net_sharpe=math.nan, gross_sharpe=math.nan, max_drawdown=math.nan,
                total_return=math.nan, ann_return=math.nan, ann_vol=math.nan,
-               hit_rate=math.nan, avg_turnover=math.nan)
+               hit_rate=math.nan, avg_turnover=math.nan, pos_years=math.nan,
+               n_years=math.nan, yr_sharpe_min=math.nan, up_capture=math.nan,
+               down_capture=math.nan, regime_pass=False)
     return row
 
 
