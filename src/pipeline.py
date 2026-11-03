@@ -22,6 +22,7 @@ from metrics import (comparison_table, equal_weight_universe, forecast_metrics,
                      strategy_report)
 from models import ModelSpec, walk_forward_predict
 from portfolio import ForecastVolParams, TrendParams, build_all_positions
+from prediction_cache import warmup_frame
 from splits import build_splits, split_panel
 from utils.artifacts import save_nested, save_parameters, save_table
 from utils.config import DEFAULT_SEED, duration_slug, duration_to_bars, periods_per_year
@@ -117,24 +118,7 @@ def _vol_warmup_predictions(history: pd.DataFrame, feature_cols: list[str],
                            spec: ModelSpec, config: PipelineConfig) -> pd.DataFrame:
     """Create trailing out-of-sample predictions to seed portfolio volatility only."""
     params = config.trend if config.strategy.startswith("trend") else config.forecast_vol
-    dates = history.index.get_level_values("date").unique().sort_values()
-    if len(dates) <= params.vol_window + config.embargo:
-        return history.iloc[0:0].copy().assign(pred=pd.Series(dtype=float))
-
-    warm_dates = dates[-params.vol_window:]
-    warm_start = warm_dates[0]
-    prior_dates = dates[dates < warm_start]
-    if len(prior_dates) <= config.embargo:
-        return history.iloc[0:0].copy().assign(pred=pd.Series(dtype=float))
-
-    prior = history.loc[history.index.get_level_values("date").isin(prior_dates)]
-    warm_eval = history.loc[history.index.get_level_values("date").isin(warm_dates)]
-    return walk_forward_predict(prior, warm_eval, feature_cols, spec,
-                                refit_every=config.refit_every,
-                                window=config.window_train_bars,
-                                embargo=config.embargo,
-                                seed=config.seed,
-                                target_col=config.target_col)
+    return warmup_frame(history, feature_cols, config, spec, params.vol_window)
 
 
 def select_model(history: pd.DataFrame, val_df: pd.DataFrame,
@@ -157,7 +141,9 @@ def select_model(history: pd.DataFrame, val_df: pd.DataFrame,
     Returns:
         ``(selected_name, ranking, selection)`` with ranking sorted by
         ``net_sharpe`` descending and ``selection = {"preds": winner_preds,
-        "books": winner_books}`` (overlay-free, per the selection rule).
+        "books": winner_books, "overlay_books": winner_overlay}`` — ``books`` is
+        overlay-free (the selection basis), ``overlay_books`` has the volatility
+        overlay applied (the book the joint ranking scores, used for reporting).
 
     Raises:
         ValueError: if every grid point is degenerate on the validation window.
@@ -206,7 +192,13 @@ def select_model(history: pd.DataFrame, val_df: pd.DataFrame,
     winner_books = build_all_positions(
         winner_preds, config, apply_vol_target=False,
         vol_history=vol_warmups.get(selected_name))
-    selection = {"preds": winner_preds, "books": winner_books}
+    # the same winner with the volatility overlay on: the book the joint ranking
+    # scored, so the validation figure set reports the book that actually won
+    winner_overlay = build_all_positions(
+        winner_preds, config, apply_vol_target=True,
+        vol_history=vol_warmups.get(selected_name))
+    selection = {"preds": winner_preds, "books": winner_books,
+                 "overlay_books": winner_overlay}
     return selected_name, ranking, selection
 
 
@@ -286,9 +278,11 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
     comparison = {f"{selected_name} (net)": book["net_ret"], **benchmarks}
     verdict = trend_success_verdict(book["net_ret"], benchmarks, config.ppy)
 
-    # validation-window book of the selected model (overlay-free, selection basis):
-    # carried so the reporting step can plot the selection window too.
-    val_portfolio = selection["books"][config.strategy]
+    # validation-window book of the selected model: reported with the volatility
+    # overlay applied, i.e. the same book the joint ranking scored (the overlay-free
+    # variant stays internal as the selection basis), so the validation figures show
+    # the winner rather than the plain book.
+    val_portfolio = selection["overlay_books"][config.strategy]
     val_benchmarks = {"Equal-weight": equal_weight_universe(selection["preds"]),
                       "SPY B&H": spy_buy_and_hold(benchmark_close, val_portfolio.index)}
 
@@ -306,35 +300,29 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
     return results
 
 
-# Report phases are defined by the run's test-window span; the pipeline publishes
-# figures automatically for any run whose span matches one. Each entry maps the
-# span to (phase folder, window whose figures it holds):
-#   validation_phase_1 -> the V1 winner combo's selection window (validation_* =
-#     2017-2019; the combo's test window is only a Jan-2020 byproduct);
-#   validation_phase_2 -> the V2 winner row's measurement window (test_* =
-#     2020-2022, the span the phase-2 ablation was ranked on);
-#   test -> the promoted test draw's measurement window (test_* = 2023-2025).
-REPORT_PHASES = {
-    ("2020-01-01", "2020-01-31"): ("validation_phase_1", "validation"),
-    ("2020-01-01", "2022-12-31"): ("validation_phase_2", "test"),
-    ("2023-01-01", "2025-12-31"): ("test", "test"),
-}
+# The final pre-registered test draw publishes canonical report figures for **both**
+# windows it measures: results/plots/test/ (the out-of-sample draw) and
+# results/plots/val/ (the validation window the winner was selected on). Study runs
+# write tables and summaries only — they never plot.
+REPORT_TEST_WINDOW = ("2023-01-01", "2025-12-31")
+REPORT_PHASES = (("test", "test"), ("val", "validation"))
 
 
-def report_phase_for(results: dict) -> tuple[str, str] | None:
-    """The report phase of a run (folder, window), or ``None`` if its test span
-    is not one of the report phases' windows."""
-    t0, t1 = results["windows"]["test"]
-    return REPORT_PHASES.get((str(t0), str(t1)))
+def report_phases_for(results: dict) -> tuple[tuple[str, str], ...]:
+    """``(phase, figure-prefix)`` pairs for this run; empty for any other span."""
+    t0, t1 = (str(value) for value in results["windows"]["test"])
+    return REPORT_PHASES if (t0, t1) == REPORT_TEST_WINDOW else ()
 
 
 def publish_report_figures(out_dir: Path, phase: str, window: str) -> Path:
-    """Copy the phase's 10 figures to ``results/plots/<phase>/`` (window prefix stripped).
+    """Copy the window's 10 figures to ``results/plots/<phase>/`` (prefix stripped).
 
     The canonical report figures live in ``results/plots/<phase>/``; the per-run
     ``plots/`` folder is transient and removed by :func:`evaluate_all`. Files are
     named ``01_<stem>.png`` … ``10_<stem>.png`` because the folder name already
-    identifies the phase.
+    identifies the phase. ``window`` is the figure-name prefix written by
+    :func:`plots.plot_run` (``"test"`` / ``"validation"``), ``phase`` the folder
+    (``"test"`` / ``"val"``).
     """
     from utils.paths import RESULTS_DIR
 
@@ -410,16 +398,15 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str]) -> Path:
     save_parameters(run_parameters(results), out_dir)
 
     # time series + report figures: series stay in the run folder, the canonical
-    # report figures go to results/plots/<phase>/ (auto-determined by the test
-    # window); the transient per-run plots/ folder is removed afterwards.
+    # report figures go to results/plots/<phase>/ for both measured windows
+    # (test and validation); the transient per-run plots/ folder is removed after.
     save_series(out_dir, "test", book, preds, benchmarks)
     save_series(out_dir, "val", results["val_portfolio"], results["val_preds"],
                 results["val_benchmarks"])
     plot_run(results, out_dir)
 
-    phase = report_phase_for(results)
-    if phase:
-        publish_report_figures(out_dir, *phase)
+    for phase, window in report_phases_for(results):
+        publish_report_figures(out_dir, phase, window)
     plots_dir = out_dir / "plots"
     if plots_dir.exists():
         shutil.rmtree(plots_dir)

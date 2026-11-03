@@ -14,8 +14,13 @@ ADDITIONAL_DIR = DATA_DIR / "additional"
 # CNN Fear & Greed index (daily, 2011+), supplied alongside the raw data.
 FEAR_GREED_PATH = ADDITIONAL_DIR / "fear-greed.csv"
 
-# Backtest results (git-ignored): one folder per run tag.
+# Backtest results (committed): one folder per run tag.
 RESULTS_DIR = PROJECT_ROOT / "results"
+
+# Validation study (committed): the joint-ranking outputs and the walk-forward
+# prediction cache that the ranking replays instead of refitting.
+STUDY_DIR = RESULTS_DIR / "_study"
+PREDICTIONS_DIR = STUDY_DIR / "predictions"
 
 
 def raw_data_dir(frequency: str) -> Path:

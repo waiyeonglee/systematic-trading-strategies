@@ -106,13 +106,21 @@ def _date_axis(ax) -> None:
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
 
 
-def _stats_line(book: pd.DataFrame, ppy: int, window: str) -> str:
+def _stats_line(book: pd.DataFrame, ppy: int, overlay: str) -> str:
     """Subtitle with the headline stats of one window's book."""
     stats = perf_stats(book["net_ret"], ppy)
-    overlay = "overlay-free (selection basis)" if window == "validation" else "vol-targeted"
     return (f"net Sharpe {stats['sharpe']:.3f} · maxDD {stats['max_drawdown']:.2%} · "
             f"total {stats['total_return']:.2%} · ann ret {stats['ann_return']:.2%} · "
             f"ann vol {stats['ann_vol']:.2%} · {overlay}")
+
+
+def _overlay_label(book: pd.DataFrame, params) -> str:
+    """Describe the volatility overlay and how often it actually scaled the book."""
+    if params.vol_target is None:
+        return "overlay off"
+    bound = int((book["vol_scale"] != 1.0).sum())
+    return (f"vol target {params.vol_target:.0%} cap {params.vol_target_cap:g} "
+            f"(scaled on {bound}/{len(book)} bars)")
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +384,7 @@ def plot_run(results: dict, out_dir: Path) -> Path:
     out.mkdir(parents=True, exist_ok=True)
     selected = results["selected"]
     run_tag = results["run_tag"]
+    params = results["config"].forecast_vol
     steps = (
         ("01_cumulative_returns", _plot_cumulative_returns),
         ("02_gross_vs_net", _plot_gross_vs_net),
@@ -392,7 +401,8 @@ def plot_run(results: dict, out_dir: Path) -> Path:
                   f"{book.index.min().date()} → {book.index.max().date()}")
         # two-line subtitle: headline stats first, run tag second (a single long
         # line would clip at the figure edges)
-        subtitle = f"{_stats_line(book, ppy, window)}\nrun {run_tag}"
+        subtitle = (f"{_stats_line(book, ppy, _overlay_label(book, params))}"
+                    f"\nrun {run_tag}")
         for stem, draw in steps:
             draw(book, benchmarks, out / f"{window}_{stem}.png", header, subtitle)
         _plot_oos_r2_by_year(preds, results["config"].target_col,

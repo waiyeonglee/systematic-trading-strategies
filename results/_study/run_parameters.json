@@ -1,0 +1,618 @@
+{
+  "scheme": "joint model x strategy ranking",
+  "window": [
+    "2017-01-01",
+    "2022-12-31"
+  ],
+  "seed": 5205,
+  "specs": [
+    "ridge_a0.001",
+    "ridge_a0.01",
+    "ridge_a0.1",
+    "ridge_a1",
+    "ridge_a10",
+    "lasso_a0.0001",
+    "lasso_a0.001",
+    "lasso_a0.01",
+    "lasso_a0.1",
+    "enet_a0.0001_r0.5",
+    "enet_a0.0001_r0.25",
+    "enet_a0.0001_r0.75",
+    "enet_a0.001_r0.5",
+    "enet_a0.001_r0.25",
+    "enet_a0.001_r0.75",
+    "enet_a0.01_r0.5",
+    "enet_a0.01_r0.25",
+    "enet_a0.01_r0.75",
+    "enet_a0.1_r0.5",
+    "enet_a0.1_r0.25",
+    "enet_a0.1_r0.75",
+    "rff_a0.0001_d100_g0.01",
+    "rff_a0.0001_d100_g0.1",
+    "rff_a0.0001_d100_g1",
+    "rff_a0.0001_d100_g10",
+    "rff_a0.0001_d200_g0.01",
+    "rff_a0.0001_d200_g0.1",
+    "rff_a0.0001_d200_g1",
+    "rff_a0.0001_d200_g10",
+    "rff_a0.0001_d500_g0.01",
+    "rff_a0.0001_d500_g0.1",
+    "rff_a0.0001_d500_g1",
+    "rff_a0.0001_d500_g10",
+    "rff_a0.001_d100_g0.01",
+    "rff_a0.001_d100_g0.1",
+    "rff_a0.001_d100_g1",
+    "rff_a0.001_d100_g10",
+    "rff_a0.001_d200_g0.01",
+    "rff_a0.001_d200_g0.1",
+    "rff_a0.001_d200_g1",
+    "rff_a0.001_d200_g10",
+    "rff_a0.001_d500_g0.01",
+    "rff_a0.001_d500_g0.1",
+    "rff_a0.001_d500_g1",
+    "rff_a0.001_d500_g10",
+    "rff_a0.01_d100_g0.01",
+    "rff_a0.01_d100_g0.1",
+    "rff_a0.01_d100_g1",
+    "rff_a0.01_d100_g10",
+    "rff_a0.01_d200_g0.01",
+    "rff_a0.01_d200_g0.1",
+    "rff_a0.01_d200_g1",
+    "rff_a0.01_d200_g10",
+    "rff_a0.01_d500_g0.01",
+    "rff_a0.01_d500_g0.1",
+    "rff_a0.01_d500_g1",
+    "rff_a0.01_d500_g10",
+    "rff_a0.1_d100_g0.01",
+    "rff_a0.1_d100_g0.1",
+    "rff_a0.1_d100_g1",
+    "rff_a0.1_d100_g10",
+    "rff_a0.1_d200_g0.01",
+    "rff_a0.1_d200_g0.1",
+    "rff_a0.1_d200_g1",
+    "rff_a0.1_d200_g10",
+    "rff_a0.1_d500_g0.01",
+    "rff_a0.1_d500_g0.1",
+    "rff_a0.1_d500_g1",
+    "rff_a0.1_d500_g10",
+    "rff_a1_d100_g0.01",
+    "rff_a1_d100_g0.1",
+    "rff_a1_d100_g1",
+    "rff_a1_d100_g10",
+    "rff_a1_d200_g0.01",
+    "rff_a1_d200_g0.1",
+    "rff_a1_d200_g1",
+    "rff_a1_d200_g10",
+    "rff_a1_d500_g0.01",
+    "rff_a1_d500_g0.1",
+    "rff_a1_d500_g1",
+    "rff_a1_d500_g10",
+    "rff_a10_d100_g0.01",
+    "rff_a10_d100_g0.1",
+    "rff_a10_d100_g1",
+    "rff_a10_d100_g10",
+    "rff_a10_d200_g0.01",
+    "rff_a10_d200_g0.1",
+    "rff_a10_d200_g1",
+    "rff_a10_d200_g10",
+    "rff_a10_d500_g0.01",
+    "rff_a10_d500_g0.1",
+    "rff_a10_d500_g1",
+    "rff_a10_d500_g10"
+  ],
+  "combos": [
+    "la1_weekly_refitW-FRI",
+    "la4_weekly_refitW-FRI",
+    "la12_weekly_refitW-FRI",
+    "la1_weekly_refitME",
+    "la4_weekly_refitME",
+    "la12_weekly_refitME",
+    "la4_4w_refitME",
+    "la12_4w_refitME",
+    "la1_weekly_refitQE",
+    "la4_weekly_refitQE",
+    "la12_weekly_refitQE",
+    "la4_4w_refitQE",
+    "la12_4w_refitQE",
+    "la12_12w_refitQE"
+  ],
+  "books": [
+    {
+      "name": "w04_vt20_rf3_cap1.0",
+      "note": "vol window 4w, vol target 20%, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 4,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w04_vt20_rf3_cap2.0",
+      "note": "vol window 4w, vol target 20%, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 4,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w04_vt20_rf3_cap3.0",
+      "note": "vol window 4w, vol target 20%, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 4,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w08_vt20_rf3_cap1.0",
+      "note": "vol window 8w, vol target 20%, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 8,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w08_vt20_rf3_cap2.0",
+      "note": "vol window 8w, vol target 20%, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 8,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w08_vt20_rf3_cap3.0",
+      "note": "vol window 8w, vol target 20%, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 8,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w12_vt20_rf3_cap1.0",
+      "note": "vol window 12w, vol target 20%, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 12,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w12_vt20_rf3_cap2.0",
+      "note": "vol window 12w, vol target 20%, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 12,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w12_vt20_rf3_cap3.0",
+      "note": "vol window 12w, vol target 20%, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 12,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w24_vt20_rf3_cap1.0",
+      "note": "vol window 24w, vol target 20%, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 24,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w24_vt20_rf3_cap2.0",
+      "note": "vol window 24w, vol target 20%, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 24,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w24_vt20_rf3_cap3.0",
+      "note": "vol window 24w, vol target 20%, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 24,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w48_vt20_rf3_cap1.0",
+      "note": "vol window 48w, vol target 20%, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 48,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w48_vt20_rf3_cap2.0",
+      "note": "vol window 48w, vol target 20%, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 48,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w48_vt20_rf3_cap3.0",
+      "note": "vol window 48w, vol target 20%, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 48,
+        "vol_target": 0.2,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w04_vt10_rf3_cap1.0",
+      "note": "vol window 4w, vol target 10%, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 4,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w04_vt10_rf3_cap2.0",
+      "note": "vol window 4w, vol target 10%, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 4,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w04_vt10_rf3_cap3.0",
+      "note": "vol window 4w, vol target 10%, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 4,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w08_vt10_rf3_cap1.0",
+      "note": "vol window 8w, vol target 10%, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 8,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w08_vt10_rf3_cap2.0",
+      "note": "vol window 8w, vol target 10%, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 8,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w08_vt10_rf3_cap3.0",
+      "note": "vol window 8w, vol target 10%, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 8,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w12_vt10_rf3_cap1.0",
+      "note": "vol window 12w, vol target 10%, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 12,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w12_vt10_rf3_cap2.0",
+      "note": "vol window 12w, vol target 10%, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 12,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w12_vt10_rf3_cap3.0",
+      "note": "vol window 12w, vol target 10%, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 12,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w24_vt10_rf3_cap1.0",
+      "note": "vol window 24w, vol target 10%, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 24,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w24_vt10_rf3_cap2.0",
+      "note": "vol window 24w, vol target 10%, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 24,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w24_vt10_rf3_cap3.0",
+      "note": "vol window 24w, vol target 10%, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 24,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w48_vt10_rf3_cap1.0",
+      "note": "vol window 48w, vol target 10%, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 48,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w48_vt10_rf3_cap2.0",
+      "note": "vol window 48w, vol target 10%, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 48,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w48_vt10_rf3_cap3.0",
+      "note": "vol window 48w, vol target 10%, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 48,
+        "vol_target": 0.1,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w04_vtoff_rf3_cap1.0",
+      "note": "vol window 4w, vol target off, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 4,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w04_vtoff_rf3_cap2.0",
+      "note": "vol window 4w, vol target off, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 4,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w04_vtoff_rf3_cap3.0",
+      "note": "vol window 4w, vol target off, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 4,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w08_vtoff_rf3_cap1.0",
+      "note": "vol window 8w, vol target off, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 8,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w08_vtoff_rf3_cap2.0",
+      "note": "vol window 8w, vol target off, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 8,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w08_vtoff_rf3_cap3.0",
+      "note": "vol window 8w, vol target off, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 8,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w12_vtoff_rf3_cap1.0",
+      "note": "vol window 12w, vol target off, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 12,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w12_vtoff_rf3_cap2.0",
+      "note": "vol window 12w, vol target off, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 12,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w12_vtoff_rf3_cap3.0",
+      "note": "vol window 12w, vol target off, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 12,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w24_vtoff_rf3_cap1.0",
+      "note": "vol window 24w, vol target off, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 24,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w24_vtoff_rf3_cap2.0",
+      "note": "vol window 24w, vol target off, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 24,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w24_vtoff_rf3_cap3.0",
+      "note": "vol window 24w, vol target off, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 24,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w48_vtoff_rf3_cap1.0",
+      "note": "vol window 48w, vol target off, rf 3%, cap 1.0",
+      "knobs": {
+        "vol_window": 48,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 1.0,
+        "lev_fee": 0.0
+      }
+    },
+    {
+      "name": "w48_vtoff_rf3_cap2.0",
+      "note": "vol window 48w, vol target off, rf 3%, cap 2.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 48,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 2.0,
+        "lev_fee": 0.068
+      }
+    },
+    {
+      "name": "w48_vtoff_rf3_cap3.0",
+      "note": "vol window 48w, vol target off, rf 3%, cap 3.0 + 6.8% borrow fee",
+      "knobs": {
+        "vol_window": 48,
+        "vol_target": null,
+        "vol_rf": 0.03,
+        "vol_cap": 3.0,
+        "lev_fee": 0.068
+      }
+    }
+  ],
+  "candidates": 58590,
+  "cache": "results/_study/predictions"
+}

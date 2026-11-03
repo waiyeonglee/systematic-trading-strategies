@@ -36,6 +36,31 @@ def build_splits(panel: pd.DataFrame, test_start: str, test_end: str,
     }
 
 
+def fixed_splits(panel: pd.DataFrame,
+                 validation: tuple[str, str]) -> dict[str, tuple[str, str]]:
+    """``train`` / ``val`` ranges from an explicit validation span.
+
+    The study uses one combined validation window instead of the pipeline's
+    "``window_val`` before ``test_start``" derivation, so the bounds are stated
+    directly rather than inferred.
+
+    Args:
+        panel: Any panel with a ``date`` index level (only its first date is used).
+        validation: ``(start, end)`` of the validation window.
+
+    Returns:
+        ``{"train": (first_date, day before validation), "val": validation}``.
+    """
+    first = panel.index.get_level_values("date").min()
+    val_start, val_end = (pd.Timestamp(value) for value in validation)
+    if val_end < val_start:
+        raise ValueError(f"validation window {validation} ends before it starts")
+    return {
+        "train": (f"{first:%Y-%m-%d}", f"{val_start - timedelta(days=1):%Y-%m-%d}"),
+        "val": (f"{val_start:%Y-%m-%d}", f"{val_end:%Y-%m-%d}"),
+    }
+
+
 def split_panel(panel: pd.DataFrame,
                 windows: dict[str, tuple[str, str]]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Cut the panel into non-overlapping train / validation / test frames.

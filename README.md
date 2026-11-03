@@ -19,18 +19,15 @@ derived data, or old results** from the reference project
 ```
 scripts/fetch_data.py        # optional re-fetch from Yahoo Finance (end exclusive 2026-01-02)
 scripts/build_features.py    # builds data/features/weekly/ from the raw CSVs
-scripts/run_backtest.py      # walk-forward model-selection backtest (144-spec grid default)
-scripts/run_study.py         # validation & ablation study driver (v1 | v2 | v2b-legacy)
-src/                         # labels.py, features.py, models.py, splits.py, portfolio.py,
-                             # metrics.py, pipeline.py, plots.py, utils/ (config, paths,
-                             # checks, artifacts)
+scripts/run_study.py         # joint model x strategy ranking on the combined window + test draw
+scripts/run_backtest.py      # single walk-forward backtest / test draw (grid or pinned spec)
+src/                         # labels.py, features.py, models.py, splits.py, prediction_cache.py,
+                             # portfolio.py, metrics.py, pipeline.py, plots.py, utils/
 agents/                      # current_state.md (history log), feature_engineering.md,
                              # model_design.py, validation_and_ablation.md, plots.md
 data/                        # raw weekly OHLCV + fear-greed + derived features
-results/                     # run tables per tag + _study/ summaries (git-ignored);
-                             # report figures land automatically in results/plots/
-                             # {validation_phase_1,validation_phase_2,test}/ (10
-                             # PNGs each); series/ stay in the run folders
+results/                     # run tables per tag + _study/ summaries and the prediction
+                             # cache (committed, ~22 MB npz); figures land in results/plots/{test,val}/
 ```
 
 ## Setup
@@ -46,41 +43,55 @@ python scripts/build_features.py                # weekly, fear-greed on, H=12
 python scripts/build_features.py --no-fear-greed
 python scripts/build_features.py --horizon 4
 
-python scripts/run_backtest.py                  # selection grid: test 2023-2025, 5y/3y split,
-                                                # QE refits (V1 dim: W-FRI|ME|QE), 144-spec grid
-                                                # (per-family alphas: ridge/rff {1e-3..100},
-                                                # lasso/enet {1e-4..10}; rff x rff_dim
-                                                # {50,100,500,1000} x gamma {1e-3..0.5}),
-                                                # vol target 10%/rf 3%, 4w cadence
-python scripts/run_backtest.py --model lasso_a10 --horizon 1 --rebalance weekly   # single cell
+python scripts/run_backtest.py                  # single walk-forward run: select on the combined
+                                                # 2017-2022 window (5y rolling train, 6y val),
+                                                # 93-spec grid, refit QE, 4w cadence,
+                                                # vol target 10% / rf 3%; measures the test span
+                                                # (default 2023-2025)
+python scripts/run_backtest.py --model lasso_a0.01 --horizon 1 --rebalance weekly   # single cell
 python scripts/run_backtest.py --horizon 4 --no-vol-target
-python scripts/run_backtest.py --test-start 2020-01-01 --test-end 2022-12-31
-# design rules (enforced in run_backtest.py):
+python scripts/run_backtest.py --test-start 2020-01-01 --test-end 2022-12-31 --window-val 3y
+# design rules (enforced in default_config):
 #   look-ahead must be >= rebalance frequency: weekly(1w) x {1,4,12} · 4w x {4,12} · 12w x {12}
 #   refit must be no more frequent than the cadence (refit_interval >= prediction_interval):
 #   W-FRI x weekly pairs (3) · ME x {1w,4w cadences} (5) · QE x all pairs (6) -> 14 combos
 
-python scripts/run_study.py v1                  # joint selection: 144 specs x 14 (freq, la, refit)
-                                                # combos = 2016 candidates on 2017-2019 -> locks
-                                                # (model, look-ahead, frequency, refit) in
-                                                # results/_study/
-python scripts/run_study.py v2                  # ablation rows on 2020-2022 (base + rows 1-4)
-python scripts/run_study.py v2b                 # LEGACY deferred tie-break (re-specify first)
+python scripts/run_study.py rank                # ONE joint ranking over the combined
+                                                # space: 93 specs x 14 (rebalance,
+                                                # look-ahead, refit) combos x 45 book
+                                                # cells = 58,590 candidates on
+                                                # 2017-2022, best net Sharpe wins
+                                                # -> results/_study/validation_ranking.csv
+                                                # (~3-4 min on 8 workers; the model fits
+                                                # come from the prediction cache)
+python scripts/run_study.py test                # single pre-registered draw (2023-2025)
+                                                # of the ranking winner
+python scripts/run_study.py rank --jobs 4       # worker processes (0 = min(8, cpu))
 ```
+
+Study outputs: the walk-forward predictions are cached under
+`results/_study/predictions/<window>/<freq>_<la>_refit<slug>/` as
+`<spec>.npz` (float32 matrix + axes) with a `<spec>.json` provenance sidecar
+(seed `utils.config.DEFAULT_SEED`); degenerate prediction sets — constant across
+tickers — are not stored,
+they get a marker under `<window>/_degenerate/` and are skipped by the ranking. The
+joint ranking lands in `results/_study/validation_ranking.csv` (one row per
+candidate, sorted by net Sharpe) with the winner plus its provenance in
+`results/_study/validation_winner.json` and the searched space in
+`results/_study/run_parameters.json`. Only the book simulation runs — the model fits
+come from the cache — and a cache entry written under another seed is recomputed.
 
 The backtest saves tables under `results/<run_tag>/` (validation ranking,
 comparison vs SPY + EW-16, forecast metrics, coefficients, run config) and their
-raw time series under `series/`. The report figures are generated by the run
-itself (no separate plot script, no flag) and land in
-`results/plots/validation_phase_1/`, `validation_phase_2/` and `test/` — one
-folder per report phase, 10 figures each. See `agents/plots.md` for the figure
-list and rationale. The previous validation results are archived, but require
-rerunning: the 4-/12-bar targets were corrected to match their holding periods.
-The 2023–2025 test window was already measured under the old target definitions,
-so a corrected rerun there is not an untouched holdout. See
-`agents/validation_and_ablation.md` §6. Study extraction summaries land in
-`results/_study/` as
-`validation_part1_*.json` / `validation_part2_*.json` / `validation_part2b_*.json`.
+raw time series under `series/`. Report figures are generated by the run itself
+(no separate plot script, no flag) and land in `results/plots/test/` **and**
+`results/plots/val/` — 10 figures each: the single pre-registered test draw and the
+validation window the winner was selected on. See `agents/plots.md` for the figure
+list and rationale. The 2023–2025 test window has now been measured twice (the retired
+two-window protocol and the 45-cell joint ranking), so any further run there is a
+remeasurement, not an untouched holdout. See `agents/validation_and_ablation.md`
+§5/§6.
 See `agents/current_state.md` for the history log, `agents/feature_engineering.md`
 for the features, `agents/model_design.py` for the design (grid, portfolio
-defaults, split & gates), `agents/validation_and_ablation.md` for the validation protocol and archived results.
+defaults, split & gates), `agents/validation_and_ablation.md` for the validation
+protocol and the measured record.

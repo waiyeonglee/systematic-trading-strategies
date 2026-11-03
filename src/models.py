@@ -75,6 +75,25 @@ class ModelSpec:
         suffix = f"_r{l1_ratio:g}" if l1_ratio is not None else ""
         return cls(f"{family}_a{alpha:g}{suffix}", penalty, alpha, l1_ratio)
 
+    @classmethod
+    def from_record(cls, record: Mapping[str, Any]) -> ModelSpec:
+        """Rebuild a spec from a stored record (``family``/``alpha``/...), e.g. a lock file.
+
+        Raises:
+            ValueError: if the record lacks ``family`` or ``alpha``, or names an
+                unknown family.
+        """
+        family = str(record.get("family", ""))
+        if "alpha" not in record:
+            raise ValueError(f"spec record {dict(record)!r} is missing 'alpha'")
+        l1_ratio = record.get("l1_ratio")
+        rff_dim = record.get("rff_dim")
+        gamma = record.get("gamma")
+        return cls.for_family(family, float(record["alpha"]),
+                              None if l1_ratio is None else float(l1_ratio),
+                              None if rff_dim is None else int(rff_dim),
+                              None if gamma is None else float(gamma))
+
     def build(self, seed: int = DEFAULT_SEED) -> Pipeline:
         """Return a fresh, unfitted scaler-plus-regressor pipeline."""
         if self.penalty == "rff":

@@ -2,11 +2,26 @@
 
 from __future__ import annotations
 
+import random
 import re
 
+import numpy as np
 import pandas as pd
 
 DEFAULT_SEED = 5205
+
+
+def seed_everything(seed: int = DEFAULT_SEED) -> int:
+    """Seed the global RNGs so a study run is reproducible end to end.
+
+    Model randomness is already pinned by ``random_state=seed`` on every estimator;
+    this also fixes the interpreter-level generators in case a helper samples.
+    Returns ``seed`` so callers can echo it.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    return seed
+
 
 FREQUENCIES = ("daily", "weekly")
 PERIODS_PER_YEAR = {"daily": 252, "weekly": 52}

@@ -1,0 +1,20 @@
+{
+  "freq": "weekly",
+  "spec": "rff_a0.1_d500_g0.1",
+  "family": "rff",
+  "alpha": 0.1,
+  "l1_ratio": null,
+  "rff_dim": 500,
+  "gamma": 0.1,
+  "target_col": "fwd_ret_4bar",
+  "rebalance": "weekly",
+  "refit_every": "ME",
+  "window_train_bars": 260,
+  "embargo": 4,
+  "seed": 5205,
+  "eval_start": "2017-01-01",
+  "eval_end": "2022-12-31",
+  "bars": null,
+  "panel": "2011-01-07..2025-09-26|12304|16",
+  "format": "npz/float32"
+}

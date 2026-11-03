@@ -1,338 +1,210 @@
-# Validation & Ablation Study — trend-following-strategy-v2
+# Validation Study — joint model x strategy ranking (trend-following-strategy-v2)
 
-> **Purpose.** Two validation layers around the main design (`agents/model_design.py`)
-> **without contaminating the final test window (2023–2025)**:
-> - **Validation 1 — Hyperparameter tuning / model selection** (2017–2019): choose the
->   **(look-ahead, model spec)** pair with a pre-declared rule. Locked once.
-> - **Validation 2 — Ablation** (2020–2022): portfolio-layer permutations around the
->   locked model. Anything that looks better must be **promoted through the
->   pre-registration ADR process** before it can enter the headline record — never by
->   picking it from this table.
+> **Purpose.** ONE validation stage. The walk-forward predictions for every
+> (model spec, look-ahead, refit cadence) are computed once and cached as npz
+> matrices; the study then replays them through every book cell and ranks the **whole
+> combined space of model x strategy parameters** by net Sharpe on a single combined
+> validation window (2017-01-01..2022-12-31). There is no separate model-selection
+> phase and no separate book-ablation phase — everything competes in one ranking.
+> The final test window (2023-2025) stays untouched by the ranking: it is measured
+> once, afterwards, for the winner only.
 >
-> This file is the v2-owned copy of the reference project's `agents/ablation_study.md`
-> (copied after a staleness check, renamed to make the dual role explicit:
-> protocol + measured record). Design constants live in `agents/model_design.py`; this
-> file holds the run rules and the results log. The reference project's protocol text
-> and this project's first executed run were compared: the v2 engine reproduced every
-> number byte-identically on the frozen v2 dataset (see §5.1).
-
-> **Label correction (2026-11-02):** `fwd_ret_4bar` and `fwd_ret_12bar` now end at
-> `t+5` and `t+13`, respectively, to represent 4-/12-bar holds after entry at `t+1`.
-> Labels are generated only by `src/labels.py`. The results below were measured with
-> the prior shorter targets and are retained as history, not valid current model
-> selection. Rerun V1 and V2 before further conclusions. The 2023–2025 test was already
-> measured, so any corrected run on that window is a remeasurement, not a fresh holdout.
+> Design constants live in `agents/model_design.py`; this file holds the protocol and
+> the measured record. The seed is fixed everywhere through the constant
+> `utils.config.DEFAULT_SEED` (`run_study.SEED`) and recorded in each cache entry and
+> in the ranking/winner files — never spelled out by hand.
 
 ---
 
-## 1. Data split & test-window discipline (read this first)
+## 1. Data split & test-window discipline
 
 ### 1.1 The split (fixed, mechanical, pre-decided)
 
 Data is used **only through the v2 fixed window — no 2026 data** (data end inclusive
-2026-01-01; fetch bound exclusive 2026-01-02). The four layers are a mechanical,
-calendar-anchored rule (the last 9 years split into three contiguous 3-year blocks),
-fixed **before** looking at market regimes. Choosing years because of what happened in
-them would be an outcome-based leak, so whatever regimes land in each block are
-accepted as-is.
+2026-01-01; fetch bound exclusive 2026-01-02). The layers are calendar-anchored and
+were fixed **before** looking at market regimes.
 
 | Layer | Window | Role |
 | --- | --- | --- |
 | Warmup | 2004-01-02..2010-12-31 | feature / indicator warmup before training starts |
-| **Train** | **2011–2016** | rolling **5y (260 weeks)** minus the **embargo (matched to the look-ahead target: 4w or 12w)** at each **quarterly refit**; the first refit trains on ~2011–2016, and the window advances every quarter. Retraining happens inside **every** layer. |
-| **Validation 1 (hyperparameter tuning / model selection)** | **2017-01-01..2019-12-31** | choose the **(look-ahead, model spec)** pair — pre-declared rule: best **validation net Sharpe** on the plain (overlay-free) base book, degenerate excluded. Locked once, then used unchanged. |
-| **Validation 2 (ablation)** | **2020-01-01..2022-12-31** | portfolio-layer permutations, run with the **model locked on 2017–2019** (`mode: single`). May be re-used freely; this is where the rows in §4 are measured. |
-| **Test (final)** | **2023-01-01..2025-12-31** | previously measured once; effective end with corrected labels is **2025-09-26** under a 12-week hold (≈ 2025-11-21 under 4 weeks; see `agents/feature_engineering.md` §4). Benchmark gate bars need no labels and run to 2025-12-31. |
+| Train | **2011-2016** | rolling **5y (260 weeks)** minus the **embargo (= look-ahead: 1/4/12 bars)** at each refit; the window advances at every refit |
+| **Validation (combined)** | **2017-01-01..2022-12-31** | the single ranking window for the whole model x strategy space |
+| **Test (final)** | **2023-01-01..2025-12-31** | one draw of the ranking winner; effective end 2025-09-26 under a 12-week hold |
 
-### 1.2 Rules that keep the headline numbers honest
+### 1.2 Rules that keep the numbers honest
 
-1. **The record is re-run from scratch on this split.** No comparability with earlier
-   (old-window) measurements is claimed; the new record starts fresh with the windows
-   above.
-2. **The test window is final and untouched.** It selects nothing: not the model, not
-   the portfolio config, not any row below. A test set's job is **confirmation, not
-   selection** — running many unplanned permutations on it and keeping whichever looks
-   best would silently turn the test into a training set.
-3. **Gate bars are recomputed on the test window.** Before any headline run, SPY and
-   EW-16 buy-and-hold stats are recomputed on **2023-01-01..2025-12-31** and
-   pre-registered (new ADR).
-4. **Promotion rule.** If a permutation looks better on the ablation window, it is
-   promoted by (a) writing the hypothesis + expected mechanism **before** measuring
-   (a new ADR), (b) measuring **once** on the final test window, and (c) recording the
-   outcome in `agents/current_state.md`. No pre-registration → no promotion.
-   A null result is logged here and forgotten — that is a completed experiment, not a
-   failure of discipline.
-5. **One variable at a time.** Each row changes exactly one knob relative to its
-   stated base. Combined permutations are allowed only after each leg is understood.
+1. **One ranking, one window.** Every (model, cadence, look-ahead, refit, book) cell
+   is scored on the same dates with the same metric (net Sharpe). No cell is selected
+   on the test window.
+2. **The test window selects nothing.** It measures the winner once. Any rerun is a
+   remeasurement, not a fresh holdout.
+3. **Gate bars are recomputed on the test window.** SPY and EW-16 buy-and-hold stats
+   on 2023-01-01..2025-12-31 are pre-registered before the draw
+   (`pipeline.trend_success_verdict`: net Sharpe >= the weaker benchmark AND
+   maxDD <= the better benchmark).
+4. **Promotion rule.** The ranking winner is a *candidate*, not a headline. It is
+   promoted only by (a) writing the hypothesis + expected mechanism before measuring,
+   (b) measuring **once** on the final test window, and (c) recording the outcome in
+   `agents/current_state.md`. A null result is a completed experiment.
+5. **Determinism.** Every estimator is seeded with `utils.config.DEFAULT_SEED`
+   (`utils.config.DEFAULT_SEED`, echoed as `run_study.SEED`). The cache key records the
+   seed, so an entry written under another seed is recomputed, never silently reused.
 
-## 2. Data-window map
+## 2. Prediction cache
 
-| Window | Years | Role | May be touched by |
-| --- | --- | --- | --- |
-| Warmup | 2004–2010 | indicator history before training | (nothing) |
-| Train | rolling **5y** (refit quarterly, embargo = target horizon); first refit ≈2011–2016 | model fitting | every run |
-| Validation 1 (model selection) | **2017–2019** | **(model, look-ahead, frequency) joint selection** (best val net Sharpe on the plain overlay-free book, degenerate excluded) | selection runs only |
-| **Validation 2 (ablation)** | **2020–2022** | portfolio-layer permutation exploration | ablation study only |
-| **Test (final)** | **2023–2025** | previously measured; corrected effective end 2025-09-26 under a 12-week target | corrected reruns are remeasurements, not fresh holdouts |
+`src/prediction_cache.py` stores one prediction set per (spec, look-ahead, refit) under
+`results/_study/predictions/<window>/<freq>_<la>_refit<slug>/`:
 
-## 3. Validation 1 — Hyperparameter tuning / Model selection (2017–2019)
+| file | content |
+| --- | --- |
+| `<spec>.npz` | the prediction matrix as `float32` `(dates, tickers)` + the two axes (≈ 21 KB for six years of weekly bars) |
+| `<spec>.json` | provenance: spec, target, refit, training window, embargo, **seed**, evaluation window, panel signature, format |
+| `<window>/_degenerate/<group>__<spec>.json` | marker for a **degenerate** prediction set (see below) |
 
-- **Window:** validation 2017-01-01..2019-12-31 only.
-- **Selection rule (pre-declared):** best **validation net Sharpe** on the plain
-  (overlay-free) base book, degenerate excluded (e.g., constant / near-zero
-  predictions). Locked once, then used unchanged in every ablation row. Runs under
-  `mode: selection`.
-- **Default portfolio (fixed across all candidates):** the plain base book — with
-  predictions computed on rebalance bars (prediction frequency is locked to cadence),
-  vol-scaled sizing with the fixed **24-week vol window**, cost-gated, moomoo costs,
-  **overlay-free** — no vol target, no rf sleeve, no leverage (those are Validation 2
-  decisions and must not influence which (model, look-ahead, frequency) wins).
-- **Walk-forward mechanics (fixed, not tuned):** rolling 5y window, quarterly refit,
-  **embargo = target horizon** (1 bar for a 1-week target, 4 for 4-week, 12 for
-  12-week).
+- Predictions do not depend on the rebalance cadence or on any book knob, so the
+  weekly / 4w / 12w candidates of one (look-ahead, refit) share a single file.
+- The 93 specs x 9 (look-ahead, refit) pairs give **837 prediction sets**; the full
+  study reuses them, so the ranking costs only book simulation.
+- **Degenerate sets are not stored.** If the predictions are constant across tickers
+  on the window (mean cross-sectional std < 1e-12 — e.g. L1 models that collapse to
+  the intercept), the cache writes a marker and removes the payload; later calls raise
+  `DegenerateCandidate`, the study records the candidate as degenerate and skips all
+  of its book cells without simulating anything. Warmup sets are exempt: a flat warmup
+  is harmless (it only seeds the volatility estimate) and is always stored.
+- **Precision:** `float32` storage moves the book Sharpe by < 1e-8 versus the
+  `float64` simulations (measured 9.4e-9 on the winner); the ranking and the test draw
+  are unchanged at 4 decimal places.
+- **Size (2026-11-04):** 175.1 MB of long CSVs → **21.8 MB** of npz + JSON (8×
+  smaller, ≈1,592 sets). Stored as compressed binary, so a git blob is ≈ the same
+  size, against ≈58 MB if the old CSVs were committed. The cache is **committed on
+  purpose** (it is not git-ignored) so a fresh clone never has to retrain; the
+  pre-migration zip backup was deleted once the migration was verified against it.
+- Every book row of a candidate shares one **48-bar** volatility warmup, so no row
+  starts from a different volatility history.
 
-| # | Hyperparameter | Levels | Mechanism / design rationale | Config / notes |
-| --- | --- | --- | --- | --- |
-| 1 | Rebalance frequency | 1w / 4w / 12w (`weekly` / `4w` / `12w`) | How often the portfolio acts. Faster acting = more responsive, higher turnover; slower = fewer decisions, staler exposure. **n-week cadence:** 1w = first bar of each week; 4w / 12w = every 4th / 12th bar (horizon-aligned, each position held exactly n bars). | `rebalance: weekly|4w|12w`; predictions on rebalance bars |
-| 2 | Prediction look-ahead | 1w / 4w / 12w | What the model predicts (the target label). Longer horizon → more stable, learnable signal; shorter → more responsive but noisier. **Rule: look-ahead >= frequency** — a position must be held at least as long as the acting interval. | `target: absolute1/4/12`; **embargo = horizon** (1 / 4 / 12 bars) |
-| 3 | Model family | Ridge / Lasso / Elastic Net / **RFF ridge** | Ridge shrinks all 21 features uniformly (dense); lasso zeroes weak features (sparse); elastic net mixes both. **RFF ridge** (added 2026-11-02, `agents/current_state.md` Step 6) = ridge on seeded random Fourier features — a Monte-Carlo approximation of Gaussian-kernel ridge, which is the design's nonlinear candidate for patterns a linear fit misses. Relevant because only a subset of features may carry trend signal. | 114-spec pre-set grid |
-| 4 | Regularization strength | **per-family α**: ridge & rff {1e-3, 1e-2, 1e-1, 1, 10, 100}; lasso & enet {1e-4, 1e-3, 1e-2, 1e-1, 1, 10}; enet × l1_ratio {0.5, 0.25} | Strength of shrinkage vs in-sample overfit. Higher α = simpler model, lower variance; too high = underfit. Prior: mid-strength ridge tends to beat both extremes. RFF α follows the ridge grid (same L2 range; α = 1e-4 with D = 500 features would sit near the interpolating regime). **2026-11-02:** L1 families moved to smaller alphas — on this data max feature signal is ~0.001–0.008 (α units), so a shared {1e-3..100} grid put lasso/enet above the entry threshold (intercept-only, degenerate); the per-family grids restore them to the active range (smoke-verified, see `agents/current_state.md`). | grid: 6 ridge + 6 lasso + 12 enet + 120 rff = 144 specs |
-| 5 | Random features (D) | **rff only**: 50 / 100 / 500 / 1000 | Kernel-approximation capacity of RFF: more random features → closer to the exact Gaussian-kernel ridge. D must exceed p = 21 — a D = 10 projection (the first proposal) is a bottleneck with ~1/√D ≈ 32% approximation error and selection noise from the W draw, so the low anchor is 50. D = 1000 added 2026-11-02 (Step 6 follow-up 5) for completeness. | `rff_dim: 50\|100\|500\|1000` |
-| 6 | Kernel bandwidth (γ) | **rff only**: 1e-3 / 1e-2 / 5e-2 / 1e-1 / 5e-1 | γ is the RBF **inverse bandwidth** in k(x,y) = exp(−γ‖x−y‖²) — NOT the lengthscale (σ = 1/√(2γ)). Features are standardized per fit (p = 21), so typical pair distance² ≈ 2p ≈ 42 and the median-heuristic γ ≈ 0.01; the grid spans smooth → local. γ ≥ 1 collapses the kernel to a point mass and aliases the RFF frequencies to noise — the proposal's {1, 10, 100} tail was dropped. | `gamma: 0.001|0.01|0.05|0.1|0.5` |
-| 7 | Model refit cadence | **weekly / monthly / quarterly** (`W-FRI` / `ME` / `QE`) | How often the model is retrained — controls model staleness at prediction bars vs compute. **Rule (economy, NOT statistical validity like look-ahead ≥ frequency): refit is no more frequent than the acting cadence — refit_interval ≥ prediction_interval** (W-FRI=1, ME=4, QE=12 bars vs cadence 1/4/12). Refits finer than the cadence fit models whose intermediate predictions the book never uses; refit == cadence captures the freshness. QE stays valid for every cadence (the current QE+weekly config remains admissible, just re-measured). | `refit_every: W-FRI\|ME\|QE`; 14 valid (freq, la, refit) combos |
-- **Selection rule (declared, not tuned):** best validation net Sharpe, degenerate excluded. Pre-registered **before** measuring. | recorded in this file before the run |
+## 3. The ranked space
 
-> **Design revision (2026-11-02):** the grid was expanded to 4 families ×
-> (frequency × look-ahead) × refit cadence — 144 specs (24 linear + 120 RFF ridge)
-> × 14 valid combos = **2016 candidates**, selected **jointly** on 2017–2019.
-> The RFF family (added later the same day, `agents/current_state.md` Step 6)
-> re-anchors its grid to the data: α = ridge's {1e-3..100}, D = {50, 100, 500,
-> 1000} (Step 6 follow-up 5 extended D by 1000), γ = {1e-3..0.5} (rows 4–6).
-> The refit cadence dimension (Step 6 follow-up 2, row 7) adds
-> weekly/monthly/quarterly refits under the rule
-> **refit_interval ≥ prediction_interval**. The old Phase 2b deferred
-> look-ahead tie-break (the old `validation_and_ablation_extension.md`, removed
-> 2026-11-02 — verdict archived in §5.2) is superseded by this joint selection.
+| dimension | values | count |
+| --- | --- | --- |
+| model spec | ridge {1e-3, 1e-2, 1e-1, 1, 10} (5); lasso {1e-4, 1e-3, 1e-2, 1e-1} (4); enet {1e-4 … 1e-1} x l1_ratio {0.5, 0.25, 0.75} (12); rff {1e-4 … 10} x D {100, 200, 500} x gamma {0.01, 0.1, 1, 10} (72) | **93** |
+| cadence, look-ahead, refit | (rebalance, look-ahead) pairs with look-ahead >= cadence: weekly x {1,4,12}, 4w x {4,12}, 12w x {12}; refit {W-FRI, ME, QE} with refit_interval >= cadence | **14** |
+| book | **full product** of vol window {4, 8, 12, 24, 48}w x vol target {20%, 10%, off} x leverage cap {1.0, 2.0, 3.0} (caps 2.0/3.0 pay a 6.8% ann. borrow fee), rf sleeve fixed at 3% | **45** |
+| | **candidates** | **58,590** |
 
-**Grid → decision:** **144 specs × 14 (frequency, look-ahead, refit) combos = 2016
-candidates**, one joint selection on 2017–2019 (not sequential). Valid combos
-(look-ahead ≥ frequency AND refit_interval ≥ prediction_interval): W-FRI ×
-{weekly pairs} (3), ME × {1w, 4w cadences} (5), QE × {all 6} (14). The winner —
-(model, look-ahead, frequency, refit) — is locked and feeds **every** ablation row
-on 2020–2022. This keeps the ablation window purely portfolio-layer.
+- Metric: **net Sharpe** on the validation window (zero risk-free rate,
+  annualised x sqrt(52)).
+- Book cells are the full cross-product — there is no shared "base" row — so every
+  combination is ranked on equal footing. The 0% cash-sleeve arm is not tested: the
+  sleeve earns a flat 3% in every cell because leaving cash at 0% is a strictly
+  worse book for the same signal.
+- The leverage cap can only bind while the vol-target overlay is live
+  (`scale = min(cap, target / realised vol)`), so the three `off x cap 2.0/3.0` cells
+  reproduce the cap-1.0 book apart from the borrow fee charged on drift leverage.
+  Those cells are **simulated once** (40 distinct books per candidate) but all 45 are
+  reported.
+- Degenerate cells (constant / near-zero predictions on the window) are kept in the
+  ranking for the record but can never win.
+- **Cost:** the book simulation is a numpy state machine
+  (`portfolio.build_forecast_vol_portfolio`), so one book takes 17–19 ms and the
+  58,590-candidate ranking runs in **~5 min** on 8 processes; the rolling forecast
+  volatility is shared across the book cells that use the same vol window.
+- The search is pre-declared: the grid, the combos and the book cells are fixed
+  before the ranking is read.
 
-## 4. Validation 2 — Ablation: portfolio-layer permutations (2020–2022)
+## 4. Output format
 
-Base for every row unless noted: the **base book** — predictions computed on
-rebalance bars at the V1-locked frequency (cadence is locked in V1, not ablated),
-vol-target 10% / cap 1.0, 3% rf sleeve, moomoo costs, no leverage, 24-week vol
-window, **model + look-ahead + frequency locked from Validation 1**. Status: `to run`
-= to be measured on 2020–2022 (with the lock selected on 2017–2019, `mode: single`);
-results are logged in §5.
-In the matrix below, the **Base** column is the default for each row and the
-**Variant** column is the single change tested.
+`results/_study/validation_ranking.csv` — one row per candidate, sorted by
+`net_sharpe` descending, with `rank`, the model parameters, `target` /
+`look_ahead` / `rebalance` / `refit`, the book knobs (`book`, `vol_window`,
+`vol_target`, `vol_rf`, `vol_cap`, `lev_fee`) and the metrics (`net_sharpe`,
+`gross_sharpe`, `max_drawdown`, `total_return`, `ann_return`, `ann_vol`, `hit_rate`,
+`avg_turnover`, `degenerate`, `degenerate_reason`). `book` is the cell slug
+(`w12_vt20_rf3_cap1.0`); its human-readable note is kept once per name in
+`run_parameters.json` rather than repeated on 58,590 rows.
 
-| # | Layer | Dimension | Base | Variant | Config delta | Condition / mechanism |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | Sizing | Vol estimation window | 24w | 4w / 8w / 12w / 24w / 48w | `vol_window: 4 / 8 / 12 / 24 / 48` | — how reactive risk sizing is; the mechanism that can explain vol overshoots / drawdown amplification. **No hard validity rule** (unlike look-ahead >= frequency): the window is a backward estimator, so any window >= 2 bars is structurally valid; soft minimum is window >= one full holding period (>= rebalance cadence in bars), and with weekly bars a 4w window is only ~3 dof — very noisy, which is exactly what the sweep measures. 24w = base (in-sweep; the volwin_24w cell duplicates the base row as a consistency check) |
-| 2 | Sizing | Vol target | 10% | None / 20% | `vol_target: null / 0.20` | whether the portfolio reduces overall exposure during a volatile period; 20% tests the opposite side (more exposure in calm periods, within cap 1.0) |
-| 3 | Sizing | Risk-free sleeve | 3% | 0% (cash idle) | `vol_target_rf: 0.0` | **only when vol target ON** — rewards holding cash during de-risked (volatile) periods |
-| 4 | Sizing | Leverage | cap 1.0 (no leverage) | cap 2.0 / cap 3.0 + fee gate | `vol_target_cap: 2.0 / 3.0`, `vol_target_lev_fee: 0.068` | **only when vol target ON** — borrow in low-volatility periods; prior: higher total return, lower Sharpe. Leverage sweep {1.0 (base), 2.0, 3.0} — cap 3.0 added 2026-11-02 (Step 6 follow-up 8), same 6.8% borrow fee |
+`results/_study/validation_winner.json` — the top row plus its provenance (spec
+record, combo, book, metrics, cache path, seed, window, candidate counts).
 
-**Run order:** 1 → 2 → 3 → 4. Row 4 after row 1: leverage's timing depends on the
-risk estimate, so the vol-window finding comes first. One variable at a time; combined
-permutations only after each leg is understood. Cadence is **not** a row: frequency is
-a V1 selection dimension (2026-11-02 design revision) — the locked (look-ahead,
-frequency) pair is used as-is in every row, and off-diagonal pairs (look-ahead <
-frequency) are excluded by design. Vol-knob rows were expanded on 2026-11-02
-(`agents/current_state.md` Step 6 follow-up 6) from {30w, 90w} x {None} to
-{4w, 8w, 12w, 24w, 48w} x {None, 10% (base), 20%}; the base book was then re-based
-to the new defaults (vol_window **24w** — was 60w — and vol_target 10%, follow-up 7),
-so Validation 1 re-runs on the 24w base book (the vol window enters the V1-scored
-book via the forecast-vol scaling, `historical_forecast_vol`).
+`results/_study/run_parameters.json` — the space definition actually searched.
 
-## 5. Log format for new results
+Command: `python scripts/run_study.py rank` (8 worker processes by default; only the
+book simulation runs — the model fits come from the cache). Measured: ≈3 min for the
+full 58,590-candidate space on 2026-11-04.
 
-For every validation run (V1 selection or V2 ablation), append a row with:
+## 5. Measured record
 
-```
-| date | stage (#V1row / #V2row) | window (2017–2019 / 2020–2022) | net Sharpe | maxDD | total | vol | TO | verdict vs base | promoted? (ADR #) |
-```
+Filled after each executed ranking. The current record is §5.1.
 
-Keep the full run tag and result folder path next to the row. If promoted, the ADR
-record in `agents/current_state.md` becomes the authoritative record; the row here is
-only a breadcrumb.
+### 5.1 Executed — joint ranking, 45-cell book space (2026-11-04)
 
-### 5.1 Executed results — V1 joint selection (2026-11-02, expanded grid)
+Command `python scripts/run_study.py rank` → **≈3 min** for the full space (8 worker
+processes; 17–19 ms per book simulation, 40 distinct simulations per candidate).
 
-**Current record — 2016-candidate joint selection (144-spec grid, 24w base book).**
-Grid: 144 specs (24 linear + 120 rff, rff_dim incl. 1000) × 14 valid (frequency,
-look-ahead, refit) combos on 2017–2019 (overlay-free base book), degenerate
-excluded by the pre-registered guard (see the NaN/merge note below). The base
-book's vol window was re-based 60w → 24w (Step 6 follow-up 7) before this run.
+- **Rows:** 58,590 candidates, **2,655 degenerate** (59 degenerate spec x combo pairs
+  x 45 book cells, constant predictions on the window).
+- **Winner (rank 1):** `rff_a0.1_d100_g0.01` · absolute4 · 4w rebalance · QE refit ·
+  book `w12_vt20_rf3_cap1.0` (12w window, 20% target, cap 1.0) — net Sharpe **1.3361**,
+  maxDD −10.15%, total +121.8%, ann return 14.15%, ann vol 10.31%, hit rate 61.7%,
+  avg turnover 0.246.
+- **Runners-up:** each of the next four rows is the *same* model and combo with a
+  different book cell, i.e. the top of the ranking is one candidate x its book space:
 
-- **Degenerates by family:** lasso 55/84, enet 95/168, ridge 0/84, **rff 0/1680**.
-  The L1 collapses concentrate on the 1-week target (entry-threshold finding);
-  every NaN-Sharpe row is also flagged degenerate (150 rows → None in the merged
-  ranking), so no degenerate survives selection.
-- **Per-combo winners (validation net Sharpe, non-degenerate):**
-
-| prediction | look-ahead | refit | winner | val net Sharpe |
-| --- | --- | --- | --- | --- |
-| 1w (weekly) | 1 | ME | enet_a0.001_r0.5 | **1.3370** |
-| 1w | 1 | W-FRI | enet_a0.001_r0.5 | 1.3300 |
-| 1w | 1 | QE | enet_a0.001_r0.5 | 1.2056 |
-| 1w | 4 | ME | rff_a1_d1000_g0.01 | 1.2487 |
-| 1w | 4 | W-FRI | rff_a100_d50_g0.05 | 1.1117 |
-| 1w | 4 | QE | rff_a1_d1000_g0.01 | 1.2403 |
-| 1w | 12 | ME | ridge_a100 | 1.0828 |
-| 1w | 12 | W-FRI | rff_a10_d50_g0.1 | 1.0606 |
-| 1w | 12 | QE | enet_a0.001_r0.25 | 1.0802 |
-| 4w | 4 | ME | rff_a10_d100_g0.05 | 1.2313 |
-| 4w | 4 | QE | rff_a10_d100_g0.05 | 1.2654 |
-| 4w | 12 | ME | rff_a0.01_d500_g0.01 | 1.1220 |
-| 4w | 12 | QE | rff_a0.01_d500_g0.01 | 1.0517 |
-| 12w | 12 | QE | rff_a100_d100_g0.5 | 0.9329 |
-
-- **Locked winner (joint selection):** **(enet_a0.001_r0.5, absolute1, weekly, ME)** —
-  val net Sharpe **1.3370** (gross 1.3660, avg TO 0.1053), non-degenerate.
-  `results/_study/validation_part1_winner.json`; 14 per-combo summaries
-  `validation_part1_{laX_freqYw}_{refit-slug}.json`; merged 2016-row ranking
-  `validation_part1_rankings.json`; run folders `results/<tag>__v1_<slug>/`
-  (tag `..._grid144_...`).
-- **What the D=1000 extension changed:** 420 d1000 rows (30 specs × 14 combos); the
-  best d1000 spec ranks **#4 overall** and wins two 4w-look-ahead weekly cells
-  (rff_a1_d1000_g0.01, ME 1.2487 / QE 1.2403 — beating the d500/d100 winners of the
-  114-grid). D=1000 adds ~0.02–0.03 Sharpe in the rff 4w cells but never threatens
-  the enet 1w lock. Top-20 has 6 d1000 rows (~30% vs 21% of the grid).
-- **Refit effect (the new dimension pays):** in the winning cell (weekly × 1w,
-  enet_a0.001_r0.5), monthly refits edge weekly (1.3370 > 1.3300) and beat
-  quarterly (1.2056). Refit cadence remains a first-order knob.
-- **Finding — refit cadence, monthly over weekly (real-life practicality, user
-  note):** V1 shows monthly and weekly refits deliver nearly identical net Sharpe
-  (1.337 vs 1.330 on 2017–2019), with essentially the same gross Sharpe — the gap
-  is purely cost: monthly refits turn the book over more slowly (avg turnover
-  0.105 vs 0.122), so they shed less to execution costs. In practice, when two
-  cadences perform equivalently, the slower refit is preferable: it reduces
-  modeling cost (half the retraining) and slows fund turnover (fewer rebalances,
-  lower transaction costs). The locked model is therefore not just the best
-  performer, but also the most practical to run live. (V2 keeps the locked ME
-  refit; no W-FRI robustness row.)
-- **RFF note:** RFF won 10/14 per-combo bests but never the global — its best
-  (rff_a10_d100_g0.05, 4w × 4w, QE, 1.2654) trails the enet lock (1.3370). RFF
-  owns every 4w-look-ahead cell; ridge wins one 12w cell (1w cadence); lasso never
-  wins a cell. The 12w × 12w cell is the weakest (0.9329), as before.
-- **Merge/NaN note (process):** NaN-Sharpe rows (lasso/enet degenerate
-  manifestations) are stored as null and sorted last; the 14/14 cell winners
-  cross-check against the merged ranking; ranking is monotonic non-increasing.
-- **Breadcrumb — 114-grid run (superseded same day, 60w base):** same lock
-  (enet_a0.001_r0.5, absolute1, weekly, ME) @ **1.3674**; per-combo winners table
-  differs only in the rff cells (d500/d100 winners; e.g., 1w×4 ME rff_a1_d500_g0.01
-  1.2216, 4w×4 QE rff_a10_d100_g0.05 1.2218, 12w×12 QE 0.9909). The lock's
-  stability across the 60w → 24w rebase and the D=1000 extension is itself a
-  robustness signal.
-- **Next (handoff):** ✅ **executed 2026-11-02** — V2 (§5.3, 11 rows → volwin_12w
-  winner), promotion ADR (current_state.md Step 6 follow-up 10), then the single
-  pre-registered 2023–2025 test draw (§5.4) → **gate FAIL, null result — nothing
-  promoted, experiment cycle closed.**
-
-**Breadcrumb — pre-refit 684-candidate run (same day, superseded):** grid without
-the refit dimension (6 (freq, la) pairs, all QE refits) locked
-(enet_a0.001_r0.5, absolute1, weekly) @ 1.1950 — the same model, now re-measured
-in the expanded grid (QE cell of the winning combo = 1.1950, matching exactly).
-Kept as history; not the current lock.
-
-**Historical note:** the pre-revision execution (2 look-aheads × 6 specs → locked
-(absolute4, ridge_a10); V2 rows 1–5 → nothing promoted) is preserved as history in
-`agents/current_state.md` (Step 5). It is **not** the current grid and must not be
-read as the current experiment.
-
-### 5.2 Phase 2b — deferred look-ahead tie-break (LEGACY, file removed)
-
-**Superseded 2026-11-02** by the joint V1 selection — the look-ahead is now selected
-directly (coupled to frequency), so there is no separate deferred tie-break phase.
-`validation_and_ablation_extension.md` was **removed 2026-11-02** (pure history,
-no active configs); its executed v2b record is archived here in compact form:
-
-- v2b verdict (old design, ridge_a10 lock, 2020–2022, margin rule M = 0.20 over
-  incumbent (a4, base) 0.5564, threshold 0.7564): best cell a4 row2 weekly 0.6635 →
-  **margin not cleared → NOT promoted**; keep (absolute4, base). The absolute12
-  look-ahead was systematically worse (6 of 7 books); the weekly edge died under
-  absolute12 (0.6635 → 0.4481, Δ −0.215). Superseded since by joint V1 selection.
-  Full 14-cell matrix was in the removed file (recoverable via backups).
-
-### 5.3 Executed results — Validation 2 (ablation, 2020–2022) — current record
-
-**Current record (2026-11-02, 144-grid lock).** Runs on 2020-01-01..2022-12-31 with
-the V1-locked winner **(enet_a0.001_r0.5, absolute1, weekly, ME refit)**; only the
-portfolio knob varies per row (11 rows, one at a time from the base book). Net
-Sharpe / total / maxDD on the ablation window (for ablation comparison only, NOT
-headline):
-
-| row | config change | net Sharpe | total | maxDD | notes |
+| rank | model | combo | book | net Sharpe | maxDD |
 | --- | --- | --- | --- | --- | --- |
-| base | 24w · vt 10% · rf 3% · cap 1.0 | 0.5180 | +18.8% | −20.9% | default book |
-| **volwin_12w** | vol window **12w** | **0.6574** | **+28.0%** | −20.7% | **winner** (V1 echo 1.5604 > base 1.3957) |
-| volwin_48w | vol window 48w | 0.6021 | +21.3% | −18.5% | runner-up |
-| volwin_24w | 24w (== base) | 0.5180 | — | — | consistency check: bit-identical to base ✓ |
-| row4_lev2 / lev3 | cap 2.0 / 3.0 + 6.8% fee | 0.5177 | — | — | == base: leverage caps never bind in 2020–22 |
-| vt_none | vol target off | 0.4855 | +17.9% | −19.8% | 10% target confirmed |
-| row3_rf0 | rf 0% | 0.4836 | +17.3% | — | rf 3% confirmed (identical trades, lost carry) |
-| vt_20 | target 20% | 0.4558 | +16.6% | — | 10% target confirmed |
-| volwin_4w / 8w | 4w / 8w | 0.4058 / 0.2437 | — | — | short windows noisy (non-monotonic) |
+| 2 | rff_a0.1_d100_g0.01 | abs4 · 4w · QE | w12_vt10_rf3_cap1.0 | 1.3239 | −9.82% |
+| 3 | rff_a0.1_d100_g0.01 | abs4 · 4w · QE | w12_vtoff_rf3_cap1.0 | 1.3117 | −10.15% |
+| 4 | rff_a0.1_d100_g0.01 | abs4 · 4w · QE | w12_vtoff_rf3_cap2.0 | 1.3090 | −10.16% |
+| 5 | rff_a0.1_d100_g0.01 | abs4 · 4w · QE | w12_vtoff_rf3_cap3.0 | 1.3090 | −10.16% |
+| 6 | rff_a0.01_d100_g0.01 | abs4 · 4w · QE | w04_vtoff_rf3_cap1.0 | 1.2906 | −11.11% |
+| 7 | rff_a0.01_d100_g0.01 | abs4 · 4w · QE | w04_vt20_rf3_cap1.0 | 1.2893 | −11.03% |
+| 8 | rff_a0.01_d100_g0.01 | abs4 · 4w · QE | w04_vtoff_rf3_cap2.0 | 1.2881 | −11.11% |
 
-- **Verdict: volwin_12w wins** (both on 2020–22 and on the 2017–19 echo); promoted
-  per the ADR (current_state.md Step 6 follow-up 10). Summaries:
-  `results/_study/validation_part2_{row}.json`, folders
-  `results/<tag>__v2_<row>/` (tag `..._enet_a0.001_r0.5_vt0.1c1rf3_rweekly_2020-2022`).
-- **Breadcrumb — 114-grid V2 (superseded same day):** same lock, 60w base **0.6274**
-  (rows: 30w 0.5751 · 90w 0.6077 · notarget 0.5096 · rf0 0.5748 · lev2 0.6273),
-  verdict then "base stands". Superseded by the 144-grid re-run + 24w rebase.
+- **What each knob is worth (best cell per level):** vol target 20% 1.3361 > 10%
+  1.3239 > off 1.3117; vol window 12w 1.3361 > 4w 1.2906 > 8w 1.2242 > 24w 1.2115 >
+  48w 1.2022; leverage cap 1.0 1.3361 > 2.0 = 3.0 1.3090. Borrowing never wins, and the
+  two levered caps are identical whenever the overlay is off (the cap cannot bind).
+- The winner is again a single cell inside a tight rff / D = 100 / gamma = 0.01
+  cluster, not a broad plateau: only **five rows** sit within 0.03 Sharpe of the top
+  and **nine** within 0.05, and all of them are `4w · QE` with a 12w or 4w window and
+  cap 1.0 (or the inert-cap duplicate). Nothing with a weekly / 12w cadence or a
+  levered cap comes near.
 
-### 5.4 Executed results — TEST window: single pre-registered draw (2023–2025)
+**Test draw — 2023-01-01..2025-12-31, one measurement of rank 1.**
 
-The one draw, run after the promotion ADR (Step 6 follow-up 10) with the promoted
-stack: enet_a0.001_r0.5 · absolute1 (1w) · weekly · ME refit · **vol_window 12w** ·
-vt 10% · rf 3% · cap 1.0 · moomoo. Folder
-`results/test_2023-2025_promoted` (tag `..._mrefit_enet_a0.001_r0.5_vt0.1c1rf3_rweekly_2023-2025`).
-**The test window had never been touched before this draw.**
-
-| metric (2023–2025) | promoted book | EW-16 | SPY B&H |
+| metric (2023–2025) | book | EW-16 | SPY B&H |
 | --- | --- | --- | --- |
-| ann return (net) | 11.95% | 11.90% | 22.28% |
-| ann vol | 10.08% | 9.35% | 14.66% |
-| total return (3y) | +36.70% | +36.53% | +74.53% |
-| hit rate | 63.2% | 59.0% | 59.0% |
-| max drawdown (net) | −11.95% | **−7.79%** | −16.88% |
-| Sharpe (net) | 1.1716 | **1.2502** | ~1.52 |
+| ann return (net) | 0.97% | 12.55% | 23.54% |
+| ann vol | 8.16% | 9.33% | 14.61% |
+| total return (3y) | +2.69% | +38.42% | +78.86% |
+| max drawdown (net) | −10.42% | **−7.79%** | −16.88% |
+| Sharpe (net) | 0.1595 | **1.3145** | 1.5230 |
 
-Forecast quality: OOS R² 1.65% (2023 1.96% / 2024 0.81% / 2025 2.06%), RMSE 0.022,
-direction acc 55.5%, rank-IC 0.0665 (t = 2.47).
+**Gate verdict: FAIL — SUCCESS=False** on both conditions (Sharpe 0.1595 < 1.3145 bar;
+maxDD −10.42% < −7.79% bar). Forecast OOS R² −0.0387 (rank-IC 0.0973); pooled OOS R²
+vs SPY −0.150, vs EW-16 −0.618. Null result: the validation edge does not transfer,
+nothing is promoted, `HEADLINE_*` stays `None`. Folder
+`results/weekly_fg_roll5y_val6y_qrefit_rff_a0.1_d100_g0.01_vt0.2c1rf3_2023-2025`;
+figures in `results/plots/test/` (2023-2025) and `results/plots/val/` (2017-2022,
+the selection window, reported with the winning book).
 
-- **Gate verdict (§3.2): FAIL — SUCCESS=False.** sharpe_ok=False (book 1.1716 <
-  bar 1.2502 = weaker benchmark Sharpe, EW-16); max_drawdown_ok=False (book
-  −11.95% < bar −7.79% = EW-16's less-negative drawdown, the harder target; the
-  book is deeper than EW but shallower than SPY's −16.88%). The book beats nothing
-  on the final window: it misses the EW Sharpe bar and carries a deeper drawdown
-  than the better benchmark; its positive total is essentially market exposure
-  (SPY returned +74.53% over the same window).
-- **Protocol outcome (rule 1.2.4):** a null result — logged here and treated as a
-  completed experiment, not a promotion. The promoted stack is **not** confirmed
-  out-of-sample. No further draws on this window; any future iteration starts as a
-  NEW pre-registered cycle (new hypothesis + new ADR before any test measurement).
+**Superseded record (kept for continuity).** The 11-row one-knob-at-a-time book space
+(2026-11-03) picked the same model and combo with `volwin_12w` (10% target) at 1.3239
+and drew 0.2906 net Sharpe on the test window — the same null conclusion. Its folder
+and CSV were replaced by the 45-cell run above; the numbers survive in
+`agents/current_state.md` Steps 13-15.
 
-## 6. Current status (label correction, 2026-11-02)
+## 6. Status
 
-- **Prior-cycle outcome (superseded for current selection):** the recorded experiment
-  cycle closed with a null test result.
-  V1 lock: **(enet_a0.001_r0.5, absolute1, weekly, ME refit)** @ 1.3370 (2017–19,
-  144-spec/2016-candidate joint selection). V2 winner: **vol_window 12w** book @
-  0.6574 (2020–22). Test draw (2023–25, once): **gate FAIL** — Sharpe 1.1716 <
-  1.2502 bar, maxDD −11.95% > −7.79% bar → **nothing promoted, no
-  headline stack exists.** Those metrics used the previous label formulas.
-- **Next:** rebuild the feature panel and rerun V1 and V2 with corrected labels.
-  Keep historical run files, but do not use their rankings/results as current
-  evidence. `HEADLINE_*` remains `None`.
-- The 2023–2025 period is already consumed. A corrected run may be recorded for
-  methodological completeness, but it is a remeasurement and cannot be presented
-  as an independent untouched test.
+- **Scheme in force:** one joint ranking over model x strategy parameters on the
+  combined 2017-2022 window; predictions cached under `results/_study/predictions`;
+  `utils.config.DEFAULT_SEED`; only the winner is measured once on 2023-2025.
+- **Promotion state:** closed on 2026-11-04 — the single test draw of rank 1
+  (`rff_a0.1_d100_g0.01` · abs4 · 4w · QE · book `w12_vt20_rf3_cap1.0`) scored net
+  Sharpe 0.1595 vs the EW-16 bar 1.3145 and maxDD −10.42% vs the −7.79% bar → **gate
+  FAIL, null result**, nothing promoted, `HEADLINE_*` stays `None`.
+- **Open question:** the ranking's top cell sits inside a tight rff / D = 100 /
+  gamma = 0.01 cluster whose validation edge does not survive out of sample (test OOS
+  R² −0.039). Any follow-up is a new pre-registered cycle, not a tweak of this one.
+- **History:** earlier two-window protocols and their outputs were removed on
+  2026-11-03 at the user's request; the summary numbers survive only in
+  `agents/current_state.md` (Steps 1-16).

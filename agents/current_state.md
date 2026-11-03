@@ -255,7 +255,7 @@ measured run.
 
 ### Implementation (written fresh, no stale imports)
 
-- `src/models.py` — `ModelSpec` (ridge/lasso/enet builders, seed 5205),
+- `src/models.py` — `ModelSpec` (ridge/lasso/enet builders, `DEFAULT_SEED`),
   `specs_from_config` (expands alpha / l1_ratio ranges into the 6-spec grid),
   `walk_forward_predict` (grouped by `refit_every`, past dates minus embargo,
   optional rolling window, fresh fit per block).
@@ -645,7 +645,7 @@ User proposal: α = {1e-4, 1e-3, 1e-1, 1, 10, 100} · D = {10, 100, 500} ·
 
 - **Grid size:** 6 α × 3 D × 5 γ = **90 RFF specs** → total grid **114 specs**
   (24 linear + 90 RFF) → V1 candidates = 114 × 6 (freq, la) pairs = **684**.
-- **Determinism:** `RBFSampler(random_state=DEFAULT_SEED=5205)` (sklearn ≥ 1.6
+- **Determinism:** `RBFSampler(random_state=DEFAULT_SEED)` (sklearn ≥ 1.6
   name for the RBF Random Fourier Features sampler) inside `ModelSpec.build` —
   every quarterly refit samples the same projection W, so predictions are
   reproducible and the kernel approximation is time-consistent.
@@ -1136,3 +1136,452 @@ values reconcile exactly (`1 - 0.9840/0.8888 = -0.107` and
 ~11% higher squared error than using SPY's return as the forecast, and ~51%
 higher than using the EW-16 mean return — consistent with the gate FAIL
 (book trails both benchmarks on 2023–2025).
+
+---
+## Step 11 — Combined 6-year validation window + prediction cache (2026-11-03)
+### Goal (user request)
+Merge the two validation periods (2017–2019 selection, 2020–2022 ablation) into a
+single **6-year validation window (2017-01-01..2022-12-31)** used by both phases, so
+the model and the trading strategy are chosen/tuned on the **same** period. Cache the
+walk-forward predictions under `results/` so phase 2 rebuilds books from the exact
+forecasts phase 1 scored. Pin **`DEFAULT_SEED`** everywhere. No backwards
+compatibility:
+the old two-window flow, the simulation-mode v2b phase and the test-span-keyed report
+phases were removed.
+### What changed
+- **`scripts/run_study.py` (rewritten).** Phases `v1` (selection), `v2` (ablation)
+  and `test` (single pre-registered draw). One window, `VALIDATION`, drives both
+  study phases; `V1_COMBOS` = 14 valid (rebalance, look-ahead, refit) combos and the
+  93-spec grid (Step 12) give **1302 candidates**. Phase 1 scores the plain overlay-free
+  book; phase 2 rebuilds the 11 book rows with `apply_vol_target=True` from the
+  locked candidate's cached predictions. Study runs write tables/series/summaries
+  only — **no figures**. `--study-dir` keeps smoke runs out of the record;
+  `--models` / `--combos` filter for smoke runs; `--refresh-cache` recomputes.
+- **`src/prediction_cache.py` (new).** `cached_predictions` / `cached_warmup` write
+  `date,ticker,pred` CSVs plus a JSON provenance record (spec, target, refit,
+  training window, embargo, **seed**, window, panel signature) under
+  `results/_study/predictions/<window>/<freq>_<la>_refit<slug>/`. The key omits the
+  rebalance cadence and book knobs (predictions do not depend on them), so the
+  weekly / 4w / 12w candidates of one (look-ahead, refit) share a single file, and a
+  cached entry is reused only when the provenance matches — a different seed or panel
+  recomputes. Predictions are written with 17 significant digits, so reloading is
+  bit-identical to recomputing.
+- **`src/splits.py`** — `fixed_splits(panel, validation)` for an explicit validation
+  span (the study no longer derives it from `test_start - window_val`).
+- **`src/pipeline.py`** — `_vol_warmup_predictions` delegates to
+  `prediction_cache.warmup_frame` (one warmup implementation); `REPORT_PHASES` /
+  `report_phase_for` replaced by `REPORT_TEST_WINDOW`: only the 2023–2025 test draw
+  publishes `results/plots/test/`.
+- **`src/models.py`** — `ModelSpec.from_record(...)` rebuilds a spec from a stored
+  lock record.
+- **`src/utils/config.py`** — `seed_everything(seed=DEFAULT_SEED)` (seeds `random` +
+  `numpy`);
+  **`src/utils/paths.py`** — `STUDY_DIR`, `PREDICTIONS_DIR`.
+- **`scripts/run_backtest.py`** — `--window-val` default `6y` (validation = the
+  combined window), `seed_everything()` at start.
+- **Volatility warmup** — one shared **48-bar** warmup per locked candidate covers
+  every vol-window row (4–48), so all ablation rows start from the same volatility
+  history instead of a per-row warmup.
+- **Design rule fix surfaced by the cache check:** the `vol_target_none` row now also
+  sets `rf 0` — the book's net return always credits the cash sleeve, so leaving
+  `rf 3%` made "vol target off" ≠ the phase-1 selection book. With `rf 0` the row is
+  exactly the selection book.
+### Consistency checks (asserted every `v2` run, exit non-zero on failure)
+- `volwin_24w` net Sharpe == `base` net Sharpe (bit-identical book).
+- `vol_target_none` net Sharpe == the phase-1 lock's net Sharpe — proof that phase 1
+  and phase 2 trade the same cached forecasts on the same dates.
+### Verified
+- `pytest`: 9 passed (new `tests/test_study_scheme.py`: explicit split, target slug
+  mapping, cache round-trip bit-identity, cadence-agnostic cache key, seed/panel
+  invalidation).
+- Smoke (`--study-dir results/_smoke`, 1 candidate, `ridge_a10` / la1 / weekly / QE):
+  phase 1 locked at 0.1977; a second phase-1 run hit the cache and reproduced the same
+  Sharpe; a 4w-cadence run of the same (look-ahead, refit) **added no cache file**
+  (~3 s, panel build + book only). Phase 2 ran all 11 rows from the two cached files
+  and both consistency checks passed. Smoke artifacts deleted.
+- `py_compile` clean on every edited module; `agents/model_design.py` prints the new
+  split/seed/cache summary.
+### Housekeeping
+
+- Superseded study JSONs moved to `results/_study/archive_two_window/` and the old
+  phase figure folders to `results/plots/_archive_two_window/`, so
+  `results/_study/` holds only the current scheme's outputs and
+  `results/plots/` only `test/`.
+
+### Not done / open
+
+- Phase 1 was smoke-tested only (Step 11); the full run is the next action (Step 12).
+- The 2023–2025 window was already consumed by the previous cycle; the `test` phase is
+  available but must be treated as a remeasurement.
+
+---
+
+## Step 12 — Reduced model grid (93 specs / 1302 candidates) + clean rerun (2026-11-03)
+
+### Goal (user request)
+
+Shrink the candidate grid (RFF dominated the runtime and the count), then delete the
+old results and rerun the study end to end.
+
+### Grid now in force (user-specified)
+
+| family | alpha | extra dims | specs |
+| --- | --- | --- | --- |
+| lasso | 1e-4, 1e-3, 1e-2, 1e-1 | — | 4 |
+| ridge | 1e-3, 1e-2, 1e-1, 1, 10 | — | 5 |
+| enet | 1e-4, 1e-3, 1e-2, 1e-1 | l1_ratio 0.5, 0.25, 0.75 | 12 |
+| rff | 1e-4, 1e-3, 1e-2, 1e-1, 1, 10 | D 100, 200, 500; gamma 0.01, 0.1, 1, 10 | 72 |
+| | | **total** | **93** |
+
+93 specs x 14 valid (rebalance, look-ahead, refit) combos = **1302 candidates**
+(was 144 x 14 = 2016). RFF compute is ~2.6x cheaper by the sum-of-D metric
+(19,200 vs 49,500) since D ∈ {100, 200, 500} replaces {50, 100, 500, 1000}.
+
+**Recorded caveat:** gamma is the RBF *inverse* bandwidth (k = exp(-gamma||x-y||^2));
+on the standardized 21-feature panel the mean pair distance^2 is ~42, so gamma ≥ 1
+collapses the kernel towards a point mass. The user chose to keep gamma 1 and 10 in
+the grid, so those 36 cells are a deliberate measured check on that claim, not
+expected signal. The design doc says so explicitly.
+
+### Changed
+
+- `scripts/run_backtest.py` — `RIDGE_ALPHAS`, `LASSO_ALPHAS`, `ENET_ALPHAS`,
+  `ENET_L1_RATIOS`, `RFF_ALPHAS`, `RFF_DIMS`, `RFF_GAMMAS` + docstrings/counts.
+- `agents/model_design.py` — mirrored constants, `V1_CANDIDATES = 1302`, grid comment
+  and `main()` summary.
+- `scripts/run_study.py` — module docstring counts.
+- `agents/validation_and_ablation.md` — §3 hyperparameter table (levels, per-family
+  specs, gamma caveat), grid → decision line, §6 status.
+- `README.md` — grid/candidate counts and the `--model` example (`lasso_a0.01`).
+- `agents/current_state.md` — this entry; Step 11's candidate count refreshed.
+
+### Deleted (old scheme outputs)
+
+- `results/_study/predictions/` (the whole walk-forward cache: 267 files from the
+  aborted 144-spec run) and any partial `validation_part1/2_*` outputs from it.
+- Run folders from the aborted grid (`results/*_val6y_*`), so the new record starts
+  clean. `results/_study/archive_two_window/` and
+  `results/plots/_archive_two_window/` are kept — they are the documented
+  two-window archive referenced by §5.
+
+### Then
+
+- `python scripts/run_study.py all` (phase 1 in an 8-process pool → phase 2 → test).
+
+### Result (executed same day, 2026-11-03)
+
+- **Phase 1 lock:** `rff_a0.1_d100_g0.01` · absolute4 · 4w · QE, val net Sharpe
+  **1.2068** (gross 1.2491, TO 0.2549) out of 1302 candidates; 59 degenerate
+  (enet 42/168, lasso 17/56, ridge 0/70, rff 0/1008). Best linear cells ~0.81.
+- **Gamma evidence:** best net Sharpe by gamma — 0.01 → 1.207, 0.1 → 0.859,
+  1 → 0.697, 10 → 0.777. The near-point-mass kernels did underperform, as the
+  a-priori argument predicted, but none were degenerate — RBF noise features still
+  fit, so the "dead zone" shows up as *worse score*, not as a flagged collapse.
+- **Phase 2:** volwin_12w wins at **1.3239** vs base 1.2026; both consistency
+  checks passed (volwin_24w == base, vol_target_none == the phase-1 lock), proving
+  phase 1 and phase 2 traded byte-identical cached forecasts.
+- **Test draw (2023–2025, once):** net Sharpe **0.2906**, maxDD −10.42%, total
+  +5.79% vs EW-16 1.3145 / −7.79% / +38.42% and SPY 1.5230 / −16.88% / +78.86%
+  → **gate FAIL on both conditions. Null result, nothing promoted, `HEADLINE_*`
+  stays None.** Forecast OOS R² **−0.0387** (worse than a zero forecast), rank-IC
+  0.0973 (t 3.75); OOS R² vs SPY −0.150, vs EW-16 −0.618.
+- **Read:** the winner sits in a tight cluster (rff, D ≤ 200, gamma 0.01, absolute4,
+  4w) and its validation edge does not survive out of sample — the phase-1 ranking
+  looks like selection noise, not a broad plateau. Full numbers in
+  `agents/validation_and_ablation.md` §5.0.
+- **Artifacts:** cache 1,634 files (≈817 prediction sets, CSV + JSON provenance) in
+  `results/_study/predictions`; run tables for the 11 phase-2 rows in
+  `results/<tag>__v2_<row>/`; test draw in
+  `results/weekly_fg_roll5y_val6y_qrefit_rff_a0.1_d100_g0.01_vt0.1c1rf3_2023-2025/`
+  with figures in `results/plots/test/`.
+
+
+---
+## Step 13 — Single joint ranking (no phases), old results deleted (2026-11-03)
+### Goal (user request)
+Drop the phase-1 / phase-2 split. The prediction stage is just the walk-forward
+prediction cache (already stored as CSVs); validation is then **one ranking over the
+combined space of model x strategy parameters**, written to a CSV under
+`results/_study`. Also remove every archived result.
+### What changed
+- **`scripts/run_study.py` (rewritten again).** Two commands only:
+  - `rank` (default) — replays the cached predictions through the whole space and
+    writes `results/_study/validation_ranking.csv` (14,322 rows, sorted by net
+    Sharpe), `validation_winner.json` and `run_parameters.json`. No phases, no book
+    "ablation rows" stage, no per-row run folders, no figures.
+  - `test` — the single pre-registered draw of the ranking winner on 2023-2025.
+  - `--models` / `--combos` subset the space, `--jobs` sets workers, `--study-dir`
+    redirects the output root, `--refresh-cache` recomputes predictions.
+- **Space definition:** 93 specs x 14 valid (rebalance, look-ahead, refit) combos x
+  11 book rows = **14,322 candidates**, all scored with the same metric (net Sharpe)
+  on the same window (2017-01-01..2022-12-31). Each candidate's 11 books are built
+  from that candidate's cached predictions and one shared 48-bar volatility warmup.
+- **Ranking CSV columns:** `rank`, model parameters (`model`, `family`, `alpha`,
+  `l1_ratio`, `rff_dim`, `gamma`), `target`, `look_ahead`, `rebalance`, `refit`,
+  `combo`, book knobs (`book`, `book_note`, `vol_window`, `vol_target`, `vol_rf`,
+  `vol_cap`, `lev_fee`), and metrics (`net_sharpe`, `gross_sharpe`, `max_drawdown`,
+  `total_return`, `ann_return`, `ann_vol`, `hit_rate`, `avg_turnover`, `degenerate`).
+- **`src/models.py`:** `ModelSpec.from_record` now coerces `rff_dim` to int and
+  treats NaN as None, so a lock/winner record rebuilds the exact spec name
+  (`..._d100_...`, not `..._d100.0_...`) and therefore the right cache key.
+- **Docs:** `agents/validation_and_ablation.md` rewritten to the single-stage
+  protocol (§1 split, §2 cache, §3 ranked space, §4 output format, §5 record, §6
+  status); `agents/model_design.py` header/§6/§7 and `RANK_CANDIDATES = 14_322`;
+  `README.md` commands and outputs; `agents/plots.md` (only the test draw plots).
+### Deleted (user request: no old archived results)
+- `results/_study/archive_two_window/` (27 JSONs, moved there in Step 11).
+- `results/plots/_archive_two_window/` and `results/plots/test/` (old figures).
+- All 14 `*_grid144*` V1 run folders, all 11 `*_2020-2022__v2_*` folders, all 11
+  `*_2017-2022__v2_*` folders, `test_2023-2025_fresh/`, `test_2023-2025_promoted/`
+  and the 2026-11-03 test run folder.
+- Superseded `results/_study/validation_part1_*` / `validation_part2_*` files and
+  the aborted-run log.
+Result: `results/` now holds only `_study/predictions/` (the cache) plus whatever
+the current ranking/test writes. The summary numbers of the removed cycles remain in
+Steps 1-12 above.
+
+### Result + book-builder rewrite (executed, same day)
+- **Ranking:** `python scripts/run_study.py rank` → **14,322 rows in 76 s** (8 workers,
+  17–19 ms per book). Winner = `rff_a0.1_d100_g0.01` · absolute4 · 4w · QE ·
+  `volwin_12w`, net Sharpe **1.3239** (maxDD −9.82%, total +96.7%); 649 degenerate
+  rows. Top-2/3: same candidate with `volwin_8w` 1.2087 and `vol_target_none` 1.2068;
+  base 1.2026. The top 100 is 56 × `4w/abs4/QE`, 35 × `4w/abs4/ME`, 9 weekly.
+- **Test draw (once):** net Sharpe **0.2906**, maxDD −10.42%, total +5.79% vs EW-16
+  1.3145 / −7.79% / +38.42% and SPY 1.5230 / −16.88% / +78.86% → **gate FAIL on both
+  conditions. Null result, nothing promoted, `HEADLINE_*` = None.** Same numbers as
+  the pre-rewrite run, which doubles as the end-to-end regression check.
+- **Why the first attempt took 45+ min and had to be stopped:** the model side was
+  cached (0.01 s per candidate) but the book simulation was a pandas loop over 313
+  bars (~0.3–0.7 s per book), i.e. 14,322 × ~0.5 s ≈ 70 min of CPU, and joblib was
+  pickling the 12k-row panel per task (measured ~1.8 of 8 cores, then ~6 after
+  batching).
+- **Fixes applied (no change to the book space — all 11 rows kept):**
+  1. `portfolio.build_forecast_vol_portfolio` rewritten as a numpy state machine:
+     target weights for every bar, the rebalance calendar and the commission function
+     are precomputed; the loop keeps only the inherent weight-drift recurrence.
+     Added `_commission_usd` (vectorised `order_cost_usd`) and `forecast_vol_frame`.
+  2. `build_positions` / `_forecast_vol_scaled` accept an optional precomputed
+     `forecast_vol`, and `study_worker` shares the rolling volatility across the six
+     distinct vol windows instead of recomputing it for all eleven rows.
+  3. `scripts/study_worker.py` (new): the worker state (panel, features, benchmark,
+     cache root) is installed once per process via a joblib `initializer`, and tasks
+     carry a batch of 5 candidates — no per-task panel pickle.
+- **Equivalence check:** 11 books × 3 candidates (rff/ridge/enet, 4w and weekly
+  cadence) reproduce the previous implementation's net/gross Sharpe, maxDD, total
+  return and turnover to **max |Δ| = 2.2e-15**; the test draw reproduces 0.2906 /
+  −10.42% / +5.79% exactly.
+- Artifacts: `results/_study/validation_ranking.csv` (14,322 rows),
+  `validation_winner.json`, `run_parameters.json`, the run folder and
+  `results/plots/test/` (10 figures).
+
+---
+## Step 14 — Compact cache (npz), degenerate markers, pre-migration backup (2026-11-04)
+### Goal (user request)
+Keep the prediction cache so nothing is retrained, but store it in a representation
+that is much smaller on disk **and** in git; and stop storing predictions for
+degenerate models — just mark them and skip.
+### Backup (first action)
+`results/_study/predictions_backup_2026-11-04.zip` — 58.3 MB zip of the pre-migration
+cache (3,352 files, 175.1 MB). Restorable, and nothing below required refitting.
+### New storage format
+| before | after |
+| --- | --- |
+| `<spec>.csv` long `date,ticker,pred` (%.17g) | `<spec>.npz`: float32 `(dates, tickers)` matrix + both axes |
+| — | `<spec>.json` provenance (adds `format: npz/float32`) |
+| degenerate sets stored like any other | `<window>/_degenerate/<group>__<spec>.json` marker; payload deleted |
+- 175.1 MB → **21.8 MB** for 1,592 sets (8x). The npz is already compressed, so a git
+  blob is ~the same size, against ~58 MB for the committed CSVs.
+- **Precision:** float32 moves the winner's book Sharpe by 9.4e-9; the full ranking
+  reproduces the same winner at the same 1.3239 and the test draw the same
+  0.2906 / −10.42% / +5.79%.
+### Degenerate policy
+`prediction_cache.is_degenerate` flags a set whose mean cross-sectional prediction
+std is < 1e-12 (the L1 models collapsing to their intercept). On first sight the set
+is marked and never written; later calls raise `DegenerateCandidate`, and
+`study_worker.score_candidate` turns that into eleven `degenerate=True` ranking rows
+with NaN metrics — **no book simulation runs for them**. Warmups are exempt (a flat
+warmup only seeds the volatility estimate, so it is always stored).
+Current cache: **42 degenerate prediction sets** (59 degenerate ranking candidates),
+84 markers in total (42 sets + their warmups).
+### Code
+- `src/prediction_cache.py` — npz read/write (`write_predictions`), `is_degenerate`,
+  `mark_degenerate`, `degenerate_markers`, `DegenerateCandidate` (picklable: `record`
+  defaults to `{}`), `check_degenerate` flag on the shared hit/compute path so warmups
+  bypass the marker check.
+- `scripts/study_worker.py` — catches `DegenerateCandidate`, emits degenerate rows,
+  skips the vol/books path.
+- `scripts/compact_prediction_cache.py` (new) — in-place re-encoder
+  (`--dry-run` supported); never refits. **Deleted in Step 18**: the committed cache
+  is already npz, so the migration path is dead for a fresh clone.
+- Tests: round-trip is now float32-exact (`rtol=1e-7`), plus a degenerate test
+  (marker written, no payload, second call raises without refitting) and an
+  `is_degenerate` unit test. 11 passed.
+### Verified
+- `run_study.py rank` against the migrated cache: 14,322 rows, 649 degenerate,
+  winner `rff_a0.1_d100_g0.01` / abs4 / 4w / QE / `volwin_12w` at 1.3239 (81 s).
+- `run_study.py test`: identical to Step 13 (0.2906, maxDD −10.42%, total +5.79%,
+  gate FAIL). Nothing retrained at any point.
+### Final cache policy (2026-11-04, supersedes the temporary ignore rule)
+The cache was briefly git-ignored while the migration was unproven. Both that rule
+and the `predictions_backup_*.zip` ignore were **removed**, and the backup zip was
+**deleted** — nothing needed it once the npz cache reproduced the ranking and the
+test draw exactly.
+- **The cache is meant to be committed.** `results/_study/predictions/` is 21.9 MB
+  across 3,268 files (1,592 `.npz` payloads + 1,676 `.json` provenance/markers), so a
+  fresh clone can reproduce `validation_ranking.csv` and the test draw without
+  refitting anything. Only the noise paths stay ignored (`.venv/`, `__pycache__/`,
+  tool caches, `*.log`).
+- Restore path, if it is ever lost: `python scripts/run_study.py rank` retrains from
+  scratch and rewrites the cache (93 specs × 14 combos, seeded `DEFAULT_SEED` ⇒
+  reproducible).
+
+---
+
+## Step 15 — Book space is the full cross-product, base row dropped (2026-11-04)
+### Goal (user request)
+The book dimension must be the **whole product** of the strategy knobs rather than one
+knob at a time around a shared base row: vol window {4, 8, 12, 24, 48}w x vol target
+{20%, 10%, off} x rf {0%, 3%} x leverage cap {1.0, 2.0, 3.0} (+6.8% fee). Then the rf
+0% arm was dropped, leaving the sleeve fixed at 3% and **45 book cells**.
+### What changed
+- **`scripts/study_worker.py`.** `BOOKS` is now generated from `VOL_WINDOWS`,
+  `VOL_TARGETS`, `VOL_RF_RATES = (0.03,)` and `LEV_CAPS = ((1.0, 0.0), (2.0, 0.068),
+  (3.0, 0.068))`; the explicit base/one-knob rows are gone. Cell names are derived, e.g.
+  `w12_vt20_rf3_cap1.0`, `w48_vtoff_rf3_cap3.0`. `vol_target` is `None` for "off".
+- **`effective_key`.** A cell's real book is `(window, target, rf, cap_eff, lev_fee)`
+  with `cap_eff = cap if target else 1.0`: without a target `_vol_target_scale`
+  returns 1.0 on every rebalance, so the cap can never bind. Those cells are simulated
+  **once** and share metrics — 45 cells, 40 distinct simulations per candidate. All 45
+  are still written to the ranking, so the declared space is exactly what is reported.
+- **`scripts/run_study.py`** — docstring/space description (93 x 14 x 45 = **58,590**
+  candidates, ≈3 min); the driver already reads `len(BOOKS)`.
+- **`agents/model_design.py`** — §6/§7 rewritten for the product grid,
+  `RANK_CANDIDATES = 58_590`, `BOOK_SIMULATIONS = 40`.
+- **`agents/validation_and_ablation.md`** — §3 space table, §4/§5.1 measured record,
+  §6 status. **`README.md`** — run comment and cache line.
+### Measured (2026-11-04)
+- `run_study.py rank`: **58,590 rows in ≈3 min** (8 workers), 2,655 degenerate rows
+  (59 degenerate spec x combo pairs x 45 cells).
+- **Winner:** `rff_a0.1_d100_g0.01` · absolute4 · 4w · QE · `w12_vt20_rf3_cap1.0` —
+  net Sharpe **1.3361**, maxDD −10.15%, total +121.8%, ann 14.15% / vol 10.31%.
+  Runners-up are the same candidate's other book cells (1.3239 vt10, 1.3117 vol-off,
+  1.3090 levered); the next model (`rff_a0.01`) reaches 1.2906.
+- **Knob values at their best:** vol target 20% > 10% > off; window 12w > 4w > 8w >
+  24w > 48w; cap 1.0 > 2.0 = 3.0 (borrowing never wins). Five rows sit within 0.03
+  Sharpe of the top, nine within 0.05, all `4w · QE`.
+- **Test draw (2023-2025, single measurement):** net Sharpe **0.1595**, maxDD −10.42%,
+  total +2.69%, ann 0.97% vs EW-16 1.3145 / −7.79% / +38.42% and SPY 1.5230 /
+  −16.88% / +78.86% → **gate FAIL on both conditions**, OOS R² −0.0387. Nothing
+  promoted; folder `results/weekly_fg_roll5y_val6y_qrefit_rff_a0.1_d100_g0.01_vt0.2c1rf3_2023-2025`
+  (the superseded `vt0.1c1rf3` folder was deleted).
+- The prediction cache was untouched — only book simulations reran, so the whole
+  exercise cost ≈3 min of compute.
+
+---
+
+## Step 16 — Validation-window figures published next to the test ones (2026-11-04)
+### Goal (user request)
+"Have the plots been updated, also generate plots for the best val" — a figure set
+for the **validation window** of the ranking winner, not just the out-of-sample draw.
+### What changed
+- **`src/pipeline.py`.** `report_phase_for` (one phase) → `report_phases_for`
+  returning both phases, `REPORT_PHASES = (("test", "test"), ("val", "validation"))`;
+  `evaluate_all` publishes each. The test draw now keeps **both** halves of the figure
+  set it already rendered (the validation half used to be deleted with the transient
+  `plots/` folder) → `results/plots/test/` + `results/plots/val/`, 10 PNGs each.
+- **The validation book is now the overlaid one.** `select_model` also returns
+  `overlay_books` (the winner with `apply_vol_target=True`) and `run_pipeline` uses it
+  as `val_portfolio`, so the validation figures show the **book the joint ranking
+  scored** (1.337 Sharpe, maxDD −10.15%, total +121.96%) instead of the overlay-free
+  selection book (1.313 / −10.15% / +119.4%). The overlay-free book remains the
+  internal selection basis for the in-pipeline ranking.
+- **`src/plots.py`.** `_stats_line` no longer hard-codes "overlay-free (selection
+  basis)" for the validation window; the new `_overlay_label` reads the config and
+  reports `vol target 20% cap 1 (scaled on N/M bars)`, which also exposes that the
+  overlay is inert here: it scales **4 of 313** validation bars and **0 of 143** test
+  bars (the inverse-vol book already runs ≈10% vol, so `target/vol > cap` and the
+  overlay clamps at 1.0). The reason `vol target 20%` ≈ `off` in Step 15 is now
+  visible in the figures themselves.
+- Docs: `agents/plots.md` (both phases, why two windows, subtitle format),
+  `README.md`, `agents/validation_and_ablation.md` §5.1.
+### Verified
+- `python scripts/run_study.py test` (≈6 s, deterministic): test net Sharpe 0.1595,
+  maxDD −10.42%, total +2.69%, gate FAIL — unchanged. `results/plots/test/` and
+  `results/plots/val/` each hold 10 PNGs; the val panels are headed
+  "validation window 2017-01-06 → 2022-12-30" with the winner's 1.337 / −10.15% /
+  +121.96% subtitle. `pytest` 12 passed.
+
+---
+
+## Step 17 — Pre-push consistency sweep (2026-11-04)
+### Goal (user request)
+"Check for any stale docs, data, or files which do not match the latest design" before
+pushing the combined-window / joint-ranking branch.
+### Stale docs fixed
+- **`agents/model_design.py` §4/§5** still described the retired V1/V2 ablation rows
+  ("V2 row 1 base", "OFF in V1", "rows 1 -> 2 -> 3 -> 4 -> 5"). Rewritten for the 45-cell
+  book space; `PREDICTIONS_CACHE` comment said "git-ignored … one CSV"
+  (now committed npz); the lineage block called the protocol an "ablation protocol".
+- **`scripts/run_backtest.py`** docstring claimed "V1 selects … (93 specs x 14 valid
+  combos = 1302 candidates)" and its flags/help referenced V1/V2 rows. Now describes the
+  joint ranking (93 x 14 x 45 = 58,590) and that the CLI measures one pinned cell.
+- **`src/utils/paths.py`** said `results/` and the study cache are "git-ignored".
+- **`agents/validation_and_ablation.md`** said the cache stores "CSVs"; §4 now records
+  that `book` is a slug and its note lives in `run_parameters.json`; history pointer
+  Steps 1-13 → 1-16.
+- **`README.md`** ranking runtime 5 min → 3-4 min; test-window wording now says the
+  holdout has been measured **twice** (retired two-window protocol + this ranking).
+### Stale data / files removed
+- **4 orphan cache entries** named `rff_a0.1_d100.0_g0.01*` (a float-formatted
+  `rff_dim` from an older `ModelSpec`; the grid writes `d100`). Deleted from both the
+  validation and the warmup window, leaving 0 files not in the grid and 0 orphan
+  npz/JSON pairs across all 9 (look-ahead, refit) groups (86-90 payloads + markers
+  = 93 per group).
+- **`__pycache__` (repo root, agents/, scripts/, src/, tests/) and `.pytest_cache`**
+  deleted (git-ignored, but they were the only untracked noise).
+### Artifact hygiene
+- `save_table` gained `index: bool = True`; the ranking is written with `index=False`,
+  dropping a meaningless `Unnamed: 0` column (20.5 MB → 15.9 MB).
+- `book_note` was repeated on all 58,590 rows (3.4 MB of prose): the slug plus the
+  note once per name in `run_parameters.json` replaces it.
+- `run_parameters.json` was **YAML with a .json extension**; it is now real JSON via
+  the existing `_save` helper.
+- Re-ran `rank` (218 s) + `test` after the changes: same winner
+  (`w12_vt20_rf3_cap1.0`, 1.3361), same test draw (0.1595 / −10.42% / +2.69%, gate
+  FAIL). `pytest` 12 passed (new `test_book_space_is_the_declared_product` guards the
+  45 cells / 40 distinct books / 3% rf / 6.8% fee).
+### Commit payload
+- 360 deletions (every old `results/` artifact), 17 modified files, 5 new files
+  (`scripts/study_worker.py`, `scripts/compact_prediction_cache.py`,
+  `src/prediction_cache.py`, `tests/test_study_scheme.py`, `results/` tree).
+- `results/` totals 3,306 files / 40.1 MB: prediction cache 22.9 MB (npz, committed on
+  purpose), ranking CSV 15.9 MB, 20 report figures ≈1.3 MB, one test-run folder.
+
+---
+
+## Step 18 — Seed literals out of the docs, legacy cache tool deleted (2026-11-04)
+### Goal (user requests)
+1. "Do not hard-code any SEED values in docstrings, only load from the constant."
+2. "Is `compact_prediction_cache` needed if it is fresh and existing run?" — no.
+### Seed literals
+`utils.config.DEFAULT_SEED` is now the **only** place the value appears (plus the
+mirror `SEED` in `agents/model_design.py`, which is labelled as a mirror). Every
+docstring/doc that used to spell the number now names the constant:
+`scripts/run_study.py` (module docstring + `SEED = DEFAULT_SEED`), 
+`scripts/run_backtest.py`, `agents/model_design.py` (§ intro, §6, the mirror note),
+`agents/validation_and_ablation.md` (§ intro, §1.5, §6), `agents/plots.md`,
+`README.md`, and the historical entries in this log. A future seed change is now a
+one-line edit with no doc drift.
+### `scripts/compact_prediction_cache.py` deleted
+It existed only to re-encode the pre-2026-11-04 **long-CSV** cache into npz. The
+committed cache is npz already and the encoder lives in
+`prediction_cache.write_predictions`, so a fresh clone (or a user with no prior
+cache) never needs the migration path: `run_study.py rank` simply writes npz from
+scratch. Removed the script and its README/§2 references; the Step 14 record keeps
+the migration history.
+### Verified
+- `pytest` 12 passed; no seed digit remains in any docstring or doc — only
+  `utils.config.DEFAULT_SEED` (source of truth) and the course code `DSA5205`.
+- No stale references to the deleted script outside this history log.
+
+

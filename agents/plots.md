@@ -1,57 +1,57 @@
 # plots.md — report figure suite
 
 Report figures are generated **inside the experiment scripts** (`src/plots.py`,
-invoked by `pipeline.evaluate_all` right after the tables are written), so there
-is no separate "plot image" script and **no flag to pass** — the pipeline decides
-the report phase automatically from the run's test window.
+invoked by `pipeline.evaluate_all`), so there is no separate "plot image" script and
+**no flag to pass**. Under the joint-ranking scheme only the **single pre-registered
+test draw** produces report figures; the ranking step
+(`scripts/run_study.py rank`) writes one CSV and nothing else.
 
 ## Where the figures live
 
 ```
 results/plots/
-  validation_phase_1/           # V1 winner combo (10 PNGs, no window prefix)
-  validation_phase_2/           # V2 winner row    (10 PNGs, no window prefix)
   test/                         # promoted test draw (10 PNGs, no window prefix)
     01_cumulative_returns.png   # ... 10_oos_r2_by_year.png
+  val/                          # the same 10 figures for the validation window the
+    01_cumulative_returns.png   # winner was chosen on (2017-2022)
 ```
 
-- The canonical report figures live **only** under `results/plots/<phase>/`,
-  named `01_<stem>.png` … `10_<stem>.png` (the folder name already identifies the
-  phase, so the `test_`/`validation_` window prefix is stripped).
+- The canonical report figures live **only** under `results/plots/<phase>/`, named
+  `01_<stem>.png` … `10_<stem>.png` (the folder name already identifies the phase,
+  so the `test_` / `validation_` window prefix is stripped).
 - The per-run `plots/` folder is **transient**: `evaluate_all` renders it, copies
-  the phase's window into `results/plots/<phase>/`, then removes it — individual
+  each measured window into `results/plots/<phase>/`, then removes it — individual
   run folders never keep stale plots.
 - Per-run **series** (the data behind the figures) still stay in each run folder
-  under `series/` (8 CSVs: book / weights / orders / benchmarks per window), so a
-  report can re-plot or extend any figure without re-running the simulation.
+  under `series/` (book / weights / orders / benchmarks per window), so a report
+  can re-plot or extend any figure without re-running the simulation.
 
-## Which run feeds which phase (automatic)
+## Which run publishes figures (automatic)
 
-| phase | published when the run's test window is | figures held |
+| run | test window | publishes |
 | --- | --- | --- |
-| `validation_phase_1` | `2020-01-01` … `2020-01-31` (V1 winner combo) | the combo's **validation** window = 2017–2019 selection (net Sharpe 1.337); its `test_*` is only a Jan-2020 byproduct |
-| `validation_phase_2` | `2020-01-01` … `2022-12-31` (V2 winner row) | the row's **test** window = 2020–2022, the span the phase-2 ablation was ranked on (net Sharpe 0.657) |
-| `test` | `2023-01-01` … `2025-12-31` (promoted draw) | the draw's **test** window = 2023–2025 (net Sharpe 1.172, gate FAIL) |
+| the pre-registered test draw | `2023-01-01` … `2025-12-31` | `results/plots/test/` (the run's `test_*` figures) **and** `results/plots/val/` (its `validation_*` figures) |
+| anything else (study rows, ad-hoc windows) | — | nothing; tables + series only |
 
-Runs whose test window matches none of these produce no report figures at all
-(tables + series only). The mapping lives in `pipeline.report_phase_for`
-(`REPORT_PHASES` in `src/pipeline.py`).
+The mapping lives in `pipeline.report_phases_for` (`REPORT_TEST_WINDOW` /
+`REPORT_PHASES` in `src/pipeline.py`).
 
 ## Why two windows per run
 
-`run_pipeline` measures the book on the **test** window and selects the model on
-the **validation** window, so both windows are plotted:
+`run_pipeline` measures the book on the **test** window and selects the model on the
+**validation** window, so both windows are plotted inside the run folder:
 
 | window | book | used for |
 | --- | --- | --- |
-| `test_*` | vol-targeted book (what would have been traded) | the run's headline measurement |
-| `validation_*` | overlay-free book (`apply_vol_target=False`, the selection basis) | the window that chose the model |
+| `test_*` | the configured book, overlay applied | the run's headline measurement |
+| `validation_*` | the same book on 2017-2022, overlay applied (`selection["overlay_books"]`) | the window that chose the model, reported with the book the joint ranking scored |
 
-For the executed study: the V1 winner folder → `validation_*` = 2017–2019
-selection window (+ a 4-bar Jan-2020 byproduct as `test_*`); the V2 winner and
-promoted test draws → `validation_*` = 2017–2019 / 2020–2022 and `test_*` =
-2020–2022 / 2023–2025. Only the phase's window (see the table above) is kept in
-`results/plots/<phase>/`; the other window's figures are discarded.
+Both figure sets are kept (`results/plots/test/`, `results/plots/val/`) so the
+validation result — the number that selected the model — is inspectable next to the
+headline. The overlay-free book (`apply_vol_target=False`) is still what the
+in-pipeline ranking scores; it is simply not plotted, because the joint ranking picks
+the winner on the overlaid book. The ranking step (`run_study.py rank`) plots nothing
+at all — it emits `results/_study/validation_ranking.csv`.
 
 ## The ten figures (per window)
 
@@ -61,7 +61,7 @@ promoted test draws → `validation_*` = 2017–2019 / 2020–2022 and `test_*` 
 | 02 | `gross_vs_net` | cumulative gross vs net wealth, drag shaded | separates **alpha (gross)** from **cost drag**; the shaded gap is the total cost + rf/lev sleeve |
 | 03 | `drawdown` | underwater curves, strategy + both benchmarks | risk view; supports the §3.2 gate argument (maxDD vs bars) |
 | 04 | `costs_and_trades` | cumulative transaction cost (step) + turnover bars with **net-buy ▲ / net-sell ▼** markers on rebalance bars and long/short regime shading | the "pointer where the action was": when the book bought, sold, and whether it was net long or short |
-| 05 | `exposure` | gross / net exposure %, vol-target scale (twin axis), leverage-blocked markers | shows the 10% vol-target de-risking and that leverage caps never bind here |
+| 05 | `exposure` | gross / net exposure %, vol-target scale (twin axis), leverage-blocked markers | shows when the vol-target overlay actually de-risked (and that the leverage cap never binds here — the scale is clamped at 1.0) |
 | 06 | `weights_held` | per-ticker weights held over time (longs stack up, shorts down) | what the portfolio actually held — sector/cross-asset tilts and rotation |
 | 07 | `weights_heatmap` | date x ticker weight heatmap | compact read of which assets carried the risk at which times |
 | 08 | `holdings_counts` | n holdings / n long / n short | breadth of the book over time (long-short balance) |
@@ -69,8 +69,9 @@ promoted test draws → `validation_*` = 2017–2019 / 2020–2022 and `test_*` 
 | 10 | `oos_r2_by_year` | forecast OOS R² per calendar year | the model-quality view behind the book — shows whether signal decayed |
 
 Every PNG is self-contained for a report: header = model + window dates,
-subtitle = net Sharpe / maxDD / total / ann ret / ann vol (+ "overlay-free
-(selection basis)" on validation figures) and the run tag.
+subtitle = net Sharpe / maxDD / total / ann ret / ann vol, the volatility overlay as
+configured and how many bars it actually scaled (e.g. `vol target 20% cap 1 (scaled
+on 4/313 bars)`), plus the run tag.
 
 ## Data recorded for plotting (portfolio.py)
 
@@ -90,12 +91,13 @@ These feed figures 04/06/07 and are also dumped to `series/`.
 Plots are produced automatically on every run — **no flag, no second script**:
 
 ```bash
-python scripts/run_backtest.py --test-start 2023-01-01 --test-end 2025-12-31 ...   # -> results/plots/test/
-python scripts/run_backtest.py --test-start 2020-01-01 --test-end 2022-12-31 ...   # -> results/plots/validation_phase_2/
-python scripts/run_backtest.py --test-start 2020-01-01 --test-end 2020-01-31 ...   # -> results/plots/validation_phase_1/
+python scripts/run_study.py test     # the pre-registered draw -> results/plots/test/ + val/
+# or the equivalent single draw through the backtest CLI:
+python scripts/run_backtest.py --test-start 2023-01-01 --test-end 2025-12-31 --window-val 6y ...
 ```
 
-Re-running a designated run overwrites that phase folder with identical figures
-(the run is deterministic, and existing tables are rewritten byte-identical —
-verified 2026-11-02 on all three designated runs). Non-phase runs simply write no
-figures; per-run `plots/` is always removed by the pipeline.
+Re-running the test draw overwrites `results/plots/test/` and `results/plots/val/`
+with identical figures (the run is deterministic: `utils.config.DEFAULT_SEED`; it
+takes ≈6 s because
+the models are cheap to refit). Any other span writes no figures, and the per-run
+`plots/` folder is always removed by the pipeline.

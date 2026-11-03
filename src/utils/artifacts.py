@@ -8,13 +8,16 @@ import pandas as pd
 import yaml
 
 
-def save_table(data: pd.DataFrame | pd.Series | dict, out_dir: Path, name: str) -> Path:
+def save_table(data: pd.DataFrame | pd.Series | dict, out_dir: Path, name: str,
+               index: bool = True) -> Path:
     """Write ``data`` to ``<out_dir>/<name>.csv``.
 
     Args:
         data: Frame, Series or plain mapping to persist.
         out_dir: Destination folder, created if missing.
         name: File stem, e.g. ``"comparison"``.
+        index: Whether to write the frame index (keep it for labelled tables such as
+            ``comparison.csv``; drop it for row-per-candidate tables).
 
     Returns:
         The path that was written.
@@ -27,7 +30,7 @@ def save_table(data: pd.DataFrame | pd.Series | dict, out_dir: Path, name: str) 
         data = pd.Series(data)
     if isinstance(data, pd.Series):
         data = data.to_frame(name=data.name or "value")
-    data.to_csv(path)
+    data.to_csv(path, index=index)
     return path
 
 

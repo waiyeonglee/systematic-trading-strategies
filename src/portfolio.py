@@ -329,11 +329,60 @@ def _vol_target_scale(book_rets: list[float], params: ForecastVolParams, ppy: in
     return min(params.vol_target_cap, params.vol_target / vol_ann)
 
 
+def forecast_vol_frame(preds: pd.DataFrame, params: ForecastVolParams,
+                       vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Rolling forecast volatility aligned to the prediction dates.
+
+    Depends only on the predictions, the warmup history and the volatility window, so
+    a study can compute it once per (candidate, vol_window) and reuse it across every
+    book row with the same window.
+
+    Args:
+        preds: Panel with ``pred``.
+        params: Volatility settings (``vol_window``, ``vol_min_periods``).
+        vol_history: Optional earlier out-of-sample predictions used only to seed it.
+
+    Returns:
+        Wide frame of rolling standard deviations, indexed like ``preds``.
+
+    Raises:
+        ValueError: if ``vol_history`` lacks ``pred`` or overlaps the portfolio dates.
+    """
+    predictions = preds["pred"].unstack("ticker").sort_index()
+    if vol_history is not None and not vol_history.empty:
+        if "pred" not in vol_history:
+            raise ValueError("vol_history must contain a 'pred' column")
+        historical = vol_history["pred"].unstack("ticker").sort_index()
+        if historical.index.intersection(predictions.index).size:
+            raise ValueError("vol_history dates must precede portfolio dates")
+        vol_inputs = pd.concat([historical, predictions]).sort_index()
+    else:
+        vol_inputs = predictions
+    return historical_forecast_vol(vol_inputs, params).reindex(predictions.index)
+
+
+def _commission_usd(values: "np.ndarray", params: ForecastVolParams) -> float:
+    """Vectorised :func:`order_cost_usd` over one bar's order vector."""
+    magnitude = np.abs(np.asarray(values, dtype=float))
+    mask = magnitude > 0
+    if not mask.any():
+        return 0.0
+    live = magnitude[mask]
+    if params.broker == "moomoo":
+        per_order = np.maximum(0.0003 * live, 0.77) * 1.09
+    elif params.broker == "ibkr":
+        per_order = np.minimum(1.0, 0.01 * live)
+    else:  # unknown broker: fall back to the scalar implementation
+        return float(sum(order_cost_usd(value, params) for value in live))
+    return float(per_order.sum() + params.cost_bps / 1e4 * live.sum())
+
+
 def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
                                  initial_capital_usd: float = 100_000.0,
                                  ppy: int = 52,
                                  apply_vol_target: bool = True,
-                                 vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
+                                 vol_history: pd.DataFrame | None = None,
+                                 forecast_vol: pd.DataFrame | None = None) -> pd.DataFrame:
     """Trade forecast-volatility-scaled weights, charging broker costs per order.
 
     Decisions lag the market by one bar: on a rebalance bar ``d`` the target weights are
@@ -351,6 +400,12 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
     overlay only ever de-risks. ``apply_vol_target=False`` (used for model selection on
     the validation window) reproduces the plain ADR-07 book exactly.
 
+    The simulation is a numpy state machine over the ``(date, ticker)`` matrices (the
+    weights path is a drift recurrence, so only the bars need a loop); everything that
+    can be precomputed — the target weights of every bar, the rebalance calendar, the
+    commissions — is computed up front, which makes one book O(bars) rather than
+    O(bars x pandas calls).
+
     Args:
         preds: Panel with ``pred`` and ``fwd_ret``, as returned by
             :func:`models.walk_forward_predict`, indexed by ``(date, ticker)``.
@@ -361,6 +416,8 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
             the validation window passes ``False``; the traded test book uses ``True``.
         vol_history: Optional earlier out-of-sample prediction panel used only to seed
             forecast volatility. Its returns are never traded or included in this book.
+        forecast_vol: Optional precomputed :func:`forecast_vol_frame` output, so a study
+            can share it across every book row with the same volatility window.
 
     Returns:
         Frame indexed by date with ``gross_ret``, ``turnover``, ``cost``, ``net_ret``,
@@ -384,91 +441,132 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
 
     predictions = preds["pred"].unstack("ticker").sort_index()
     returns = preds["fwd_ret"].unstack("ticker").reindex(predictions.index)
-    decisions = predictions.shift(1)  # bar d trades on the prediction dated bar d-1
-    if vol_history is not None and not vol_history.empty:
-        if "pred" not in vol_history:
-            raise ValueError("vol_history must contain a 'pred' column")
-        historical = vol_history["pred"].unstack("ticker").sort_index()
-        if historical.index.intersection(predictions.index).size:
-            raise ValueError("vol_history dates must precede portfolio dates")
-        vol_inputs = pd.concat([historical, predictions]).sort_index()
-    else:
-        vol_inputs = predictions
-    forecast_vol = historical_forecast_vol(vol_inputs, params).reindex(predictions.index)
-    rebalances = set(rebalance_dates(predictions.index, params.rebalance))
+    dates = predictions.index
+    tickers = predictions.columns
+    bars, width = len(dates), len(tickers)
 
-    equity = initial_capital_usd
-    weights = pd.Series(0.0, index=predictions.columns)
-    previous_date = None
-    rows = []
-    weight_rows: list[pd.Series] = []
-    order_rows: list[pd.Series] = []
-    book_rets: list[float] = []  # trailing weekly net returns for the vol-target overlay
-    for date in predictions.index:
-        if previous_date is not None:
-            weights = mark_to_market_weights(weights, returns.loc[previous_date])
+    decisions = predictions.shift(1).to_numpy(dtype=float)
+    realised = returns.to_numpy(dtype=float)
+    realised = np.nan_to_num(realised, nan=0.0)          # returns.loc[date].fillna(0.0)
+    if forecast_vol is None:
+        forecast_vol = forecast_vol_frame(preds, params, vol_history)
+    vols = forecast_vol.reindex(dates).to_numpy(dtype=float)
+
+    # Precompute the unscaled target weights of every bar: predictions are divided by
+    # their forecast volatility, then normalised to gross 1.0 (target_weights).
+    eligible = (np.isfinite(decisions) & np.isfinite(vols) & (vols > 0)
+                & (np.abs(decisions) > 0.0))
+    ratio = np.where(eligible, decisions / np.clip(vols, 1e-5, None), 0.0)
+    gross_ratio = np.abs(ratio).sum(axis=1, keepdims=True)
+    targets = np.divide(ratio, gross_ratio, out=np.zeros_like(ratio),
+                        where=gross_ratio > 0)
+
+    is_rebalance = np.zeros(bars, dtype=bool)
+    rebalance_set = set(rebalance_dates(dates, params.rebalance))
+    is_rebalance[:] = [date in rebalance_set for date in dates]
+
+    with_overlay = apply_vol_target and params.vol_target is not None
+    rf_week = (1.0 + (params.vol_target_rf or 0.0)) ** (1.0 / ppy) - 1.0  # cash sleeve
+    lev_week = (1.0 + (params.vol_target_lev_fee or 0.0)) ** (1.0 / ppy) - 1.0
+    fee_horizon = (1.0 + (params.vol_target_lev_fee or 0.0)) ** (12.0 / ppy) - 1.0
+
+    weights = np.zeros(width)
+    equity = float(initial_capital_usd)
+    book_rets: list[float] = []          # trailing net returns for the vol-target overlay
+
+    gross_ret = np.zeros(bars)
+    turnover = np.zeros(bars)
+    cost_frac = np.zeros(bars)
+    net_ret = np.zeros(bars)
+    equity_path = np.zeros(bars)
+    vol_scale_path = np.ones(bars)
+    leverage_blocked = np.zeros(bars, dtype=int)
+    weights_path = np.zeros((bars, width))
+    orders_path = np.zeros((bars, width))
+
+    for index in range(bars):
+        if index:
+            # mark to market: weights drift with the previous bar's returns
+            previous = realised[index - 1]
+            portfolio_return = float(np.dot(weights, previous))
+            if 1.0 + portfolio_return <= 0:
+                raise ValueError("portfolio is insolvent: weights and returns wiped out "
+                                 "the equity")
+            weights = weights * (1.0 + previous) / (1.0 + portfolio_return)
+
         equity_before = equity
         vol_scale = 1.0
+        blocked = 0
+        orders = np.zeros(width)
 
-        if date in rebalances:
-            target = target_weights(decisions.loc[date], forecast_vol.loc[date])
-            leverage_blocked = False
-            if apply_vol_target and params.vol_target is not None:
+        if is_rebalance[index]:
+            target = targets[index].copy()
+            if with_overlay:
                 vol_scale = _vol_target_scale(book_rets, params, ppy)
-                if vol_scale > 1.0:  # leverage fee gate: never borrow to amplify a signal
-                    # that cannot pay its own holding fee over the prediction horizon
-                    exp_ret = float((target * decisions.loc[date]).sum())
-                    fee_horizon = (1.0 + (params.vol_target_lev_fee or 0.0)) ** (12.0 / ppy) - 1.0
-                    if exp_ret < fee_horizon:
+                if vol_scale > 1.0:   # leverage fee gate: never borrow to amplify a
+                    # signal that cannot pay its own holding fee over the horizon
+                    if float(np.dot(target, decisions[index])) < fee_horizon:
                         vol_scale = 1.0
-                        leverage_blocked = True
-                target = target * vol_scale
-            orders = orders_for_target(weights, target, equity_before)
-            if weights.abs().sum() > 0.0:   # a build from cash forgoes nothing and is exempt
-                orders = cost_gated_orders(orders, decisions.loc[date], params)
-            orders = orders.fillna(0.0)
-            costs = float(sum(order_cost_usd(value, params) for value in orders if value != 0))
-            weights = (weights.add(orders / equity_before, fill_value=0.0)
-                       .reindex(predictions.columns, fill_value=0.0))
+                        blocked = 1
+                target *= vol_scale
+            orders = (target - weights) * equity_before
+            if np.abs(weights).sum() > 0.0:   # a build from cash is exempt from the gate
+                decision = decisions[index]
+                if np.isnan(decision).any():   # a missing signal freezes the whole book
+                    orders = np.zeros(width)
+                else:
+                    net_gain = float(np.dot(orders, decision))
+                    if not net_gain > params.cost_gate_multiple * _commission_usd(
+                            orders, params):
+                        orders = np.zeros(width)
+            orders = np.nan_to_num(orders, nan=0.0)
+            costs = _commission_usd(orders, params)
+            weights = weights + orders / equity_before
         else:
-            orders = pd.Series(0.0, index=predictions.columns)
             costs = 0.0
-            leverage_blocked = False
 
-        gross = float((weights * returns.loc[date].fillna(0.0)).sum())
+        bar_return = float(np.dot(weights, realised[index]))
         cost = costs / equity_before
-        rf_week = (1.0 + (params.vol_target_rf or 0.0)) ** (1.0 / ppy) - 1.0  # cash sleeve
-        lev_week = (1.0 + (params.vol_target_lev_fee or 0.0)) ** (1.0 / ppy) - 1.0
-        gross_exposure = float(weights.abs().sum())
-        cash_frac = max(0.0, 1.0 - gross_exposure)
-        lev_frac = max(0.0, gross_exposure - 1.0)  # borrowed amount (gross above 100%)
-        net = gross - cost + cash_frac * rf_week - lev_frac * lev_week
+        gross_exposure = float(np.abs(weights).sum())
+        cash_fraction = max(0.0, 1.0 - gross_exposure)
+        leverage_fraction = max(0.0, gross_exposure - 1.0)
+        net = (bar_return - cost + cash_fraction * rf_week
+               - leverage_fraction * lev_week)
 
         equity = equity_before * (1.0 + net)
         if equity <= 0:
-            raise ValueError(f"portfolio equity fell to {equity:.2f} USD on {date}")
+            raise ValueError(f"portfolio equity fell to {equity:.2f} USD on {dates[index]}")
 
-        held = weights[weights.abs() > 1e-12]
-        rows.append(dict(date=date, gross_ret=gross,
-                         turnover=float(orders.abs().sum()) / equity_before, cost=cost,
-                         net_ret=net, n_holdings=len(held),
-                         holdings=",".join(sorted(held.index)),
-                         n_long=int((held > 0).sum()), n_short=int((held < 0).sum()),
-                         gross_exposure=float(held.abs().sum()),
-                         net_exposure=float(held.sum()), equity_usd=equity,
-                         vol_scale=vol_scale,
-                         leverage_blocked=int(leverage_blocked),
-                         rebalanced=int(date in rebalances)))
-        previous_date = date
+        gross_ret[index] = bar_return
+        turnover[index] = float(np.abs(orders).sum()) / equity_before
+        cost_frac[index] = cost
+        net_ret[index] = net
+        equity_path[index] = equity
+        vol_scale_path[index] = vol_scale
+        leverage_blocked[index] = blocked
+        weights_path[index] = weights
+        orders_path[index] = orders
         book_rets.append(net)
-        weight_rows.append(weights.copy())
-        order_rows.append(orders.copy())
 
-    frame = pd.DataFrame(rows).set_index("date")
-    weights_wide = pd.DataFrame(weight_rows, index=frame.index,
-                                columns=predictions.columns).fillna(0.0)
-    orders_wide = pd.DataFrame(order_rows, index=frame.index,
-                               columns=predictions.columns).fillna(0.0)
+    held = np.abs(weights_path) > 1e-12
+    frame = pd.DataFrame({
+        "gross_ret": gross_ret,
+        "turnover": turnover,
+        "cost": cost_frac,
+        "net_ret": net_ret,
+        "n_holdings": held.sum(axis=1).astype(int),
+        "holdings": [",".join(sorted(np.asarray(tickers)[row])) for row in held],
+        "n_long": ((weights_path > 0) & held).sum(axis=1).astype(int),
+        "n_short": ((weights_path < 0) & held).sum(axis=1).astype(int),
+        "gross_exposure": np.abs(np.where(held, weights_path, 0.0)).sum(axis=1),
+        "net_exposure": np.where(held, weights_path, 0.0).sum(axis=1),
+        "equity_usd": equity_path,
+        "vol_scale": vol_scale_path,
+        "leverage_blocked": leverage_blocked,
+        "rebalanced": is_rebalance.astype(int),
+    }, index=dates)
+    weights_wide = pd.DataFrame(weights_path, index=dates, columns=tickers)
+    orders_wide = pd.DataFrame(orders_path, index=dates, columns=tickers)
     object.__setattr__(frame, "weights_wide", weights_wide)
     object.__setattr__(frame, "orders_wide", orders_wide)
     return frame
@@ -583,27 +681,35 @@ def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
 
 
 def _trend_long_flat(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
-                     vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
+                     vol_history: pd.DataFrame | None = None,
+                     forecast_vol: pd.DataFrame | None = None) -> pd.DataFrame:
     """Long the on-signal assets, weighted by inverse realized volatility, else cash."""
     return build_trend_portfolio(preds, config.trend, config.initial_capital_usd,
                                  vol_history=vol_history)
 
 
 def _trend_long_short(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
-                      vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
+                      vol_history: pd.DataFrame | None = None,
+                      forecast_vol: pd.DataFrame | None = None) -> pd.DataFrame:
     """Long the on-signal assets, short the off-signal ones (long/short variant)."""
     return build_trend_portfolio(preds, config.trend, config.initial_capital_usd,
                                  shorting=True, vol_history=vol_history)
 
 
 def _forecast_vol_scaled(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
-                         vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Scale predictions by their own forecast volatility and trade them long and short."""
+                         vol_history: pd.DataFrame | None = None,
+                         forecast_vol: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Scale predictions by their own forecast volatility and trade them long and short.
+
+    ``forecast_vol`` lets a study reuse the rolling volatility across book rows that
+    share the same volatility window (it depends only on the predictions).
+    """
     from utils.config import periods_per_year  # deferred: utils.config is a leaf module
     ppy = periods_per_year(config.freq)
     return build_forecast_vol_portfolio(preds, config.forecast_vol, config.initial_capital_usd,
                                         ppy=ppy, apply_vol_target=apply_vol_target,
-                                        vol_history=vol_history)
+                                        vol_history=vol_history,
+                                        forecast_vol=forecast_vol)
 
 
 STRATEGIES: dict[str, Callable[..., pd.DataFrame]] = {
@@ -628,7 +734,8 @@ def configured_strategies(strategy: str) -> tuple[str, ...]:
 
 def build_positions(preds: pd.DataFrame, config, strategy: str | None = None,
                     *, apply_vol_target: bool = True,
-                    vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
+                    vol_history: pd.DataFrame | None = None,
+                    forecast_vol: pd.DataFrame | None = None) -> pd.DataFrame:
     """Turn predictions into portfolio weights using one of the configured strategies.
 
     Args:
@@ -640,6 +747,8 @@ def build_positions(preds: pd.DataFrame, config, strategy: str | None = None,
             window passes ``False``.
         vol_history: Optional earlier out-of-sample history used only to seed the
             strategy's rolling volatility estimate.
+        forecast_vol: Optional precomputed rolling volatility (forecast-vol strategies
+            only), so callers can share it across book rows with the same window.
 
     Returns:
         Portfolio frame from the selected strategy.
@@ -649,7 +758,7 @@ def build_positions(preds: pd.DataFrame, config, strategy: str | None = None,
     """
     rule = strategy or configured_strategies(config.strategy)[0]
     return STRATEGIES[rule](preds, config, apply_vol_target=apply_vol_target,
-                            vol_history=vol_history)
+                            vol_history=vol_history, forecast_vol=forecast_vol)
 
 
 def build_all_positions(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
