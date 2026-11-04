@@ -14,17 +14,52 @@ derived data, or old results** from the reference project
 - Start 2004-01-01 (pre-2011 history is feature warmup only); study window 2011+.
 - See `data/README.md` for the full conventions.
 
+### Macro inputs and the derived feature file
+
+The macro-interaction study adds five monthly state variables on top of the
+price-based features:
+
+| Variable | Meaning | Source |
+| --- | --- | --- |
+| `fear_greed` | CNN Fear & Greed index (0-100), month-end | `data/additional/fear-greed.csv` (committed) |
+| `tbl` | 3-month T-bill rate | `data/raw/Data2025.xlsx`, sheet `Monthly` |
+| `tms` | term spread, `lty - tbl` | same workbook |
+| `dfy` | default yield spread, `BAA - AAA` | same workbook |
+| `dfr` | default return spread, `corpr - ltr` | same workbook |
+
+The workbook is the Welch-Goyal predictor dataset (monthly, 1871-01..2025-12),
+downloaded from [Amit Goyal's predictor-data page](https://sites.google.com/view/agoyal145)
+— see Goyal & Welch (2008), *A Comprehensive Look at the Empirical Performance of
+Equity Premium Prediction*, RFS 21(4). `dfr` has no FRED equivalent, which is why the
+workbook is the source. A bar dated in month `M` uses
+the month `M - 1` value, so nothing is used before it is published. Crossing the 19
+firm features with `(const + 5 macro)` gives **114 columns**; see
+`agents/macro_study.md` for the protocol.
+
+`data/features/weekly/features_macro.csv` is the derived 114-column panel written for
+inspection. It is **~30 MB and not committed** (listed in `.gitignore`) — the study
+rebuilds the panel in memory, so a fresh clone trains without it. Regenerate it with:
+
+```bash
+python scripts/build_features_macro.py                       # -> data/features/weekly/features_macro.csv
+python scripts/build_features_macro.py --out /tmp/macro.csv  # custom destination
+```
+
 ## Layout
 
 ```
 scripts/fetch_data.py        # optional re-fetch from Yahoo Finance (end exclusive 2026-01-02)
 scripts/build_features.py    # builds data/features/weekly/ from the raw CSVs
 scripts/run_study.py         # joint model x strategy ranking on the combined window + test draw
+scripts/build_features_macro.py  # writes the 114-column macro-interaction panel (git-ignored)
+scripts/run_study_macro.py   # macro-interaction study: enet-only ranking, train 2011-2018,
+                             # val 2019-2022, test 2023-2025 (results/_study_macro)
 scripts/run_backtest.py      # single walk-forward backtest / test draw (grid or pinned spec)
-src/                         # labels.py, features.py, models.py, splits.py, prediction_cache.py,
-                             # portfolio.py, metrics.py, pipeline.py, plots.py, utils/
+src/                         # labels.py, features.py, macro.py, models.py, splits.py,
+                             # prediction_cache.py, portfolio.py, metrics.py, pipeline.py,
+                             # plots.py, utils/
 agents/                      # current_state.md (history log), feature_engineering.md,
-                             # model_design.py, validation_and_ablation.md, plots.md
+                             # model_design.py, validation_and_ablation.md, macro_study.md, plots.md
 data/                        # raw weekly OHLCV + fear-greed + derived features
 results/                     # run tables per tag + _study/ summaries and the prediction
                              # cache (committed, ~22 MB npz); figures land in results/plots/{test,val}/
@@ -74,6 +109,17 @@ python scripts/run_study.py rank --criterion regime   # same space, regime-strat
 python scripts/run_study.py test --criterion regime   # draw of that winner; figures
                                                 # in results/plots/regime_{test,val}/
 python scripts/run_study.py rank --jobs 4       # worker processes (0 = min(8, cpu))
+
+python scripts/build_features_macro.py          # 19 firm x (5 macro + const) = 114 columns
+                                                # -> data/features/weekly/features_macro.csv
+                                                # (git-ignored, inspection only)
+python scripts/run_study_macro.py rank          # macro-interaction study: 20 enet specs x
+                                                # 6 QE combos x 45 books = 5,400 candidates
+                                                # on 2019-2022 (train 2011-2018, 8y rolling)
+                                                # -> results/_study_macro/validation_ranking.csv
+python scripts/run_study_macro.py rank --refits W-FRI,ME,QE   # add the costlier refit arms
+python scripts/run_study_macro.py test          # single draw of that winner on 2023-2025;
+                                                # figures -> results/plots_macro/{test,val}/
 ```
 
 Study outputs: the walk-forward predictions are cached under

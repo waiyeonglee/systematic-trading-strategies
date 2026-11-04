@@ -118,12 +118,15 @@ _STATE: dict = {}
 
 
 def book_config(horizon: int, *, rebalance: str, refit: str, model: str | None,
-                book: dict):
+                book: dict, window_train: str | None = "5y",
+                grid_entries: list[dict] | None = None):
     """Config for one book cell: the candidate plus that cell's book knobs."""
     book = dict(book)
     vol_target = book.pop("vol_target", True)
     return default_config(horizon, vol_target=vol_target, model=model,
-                          rebalance=rebalance, refit_every=refit, **book)
+                          rebalance=rebalance, refit_every=refit,
+                          window_train=window_train, grid_entries=grid_entries,
+                          **book)
 
 
 def effective_key(knobs: dict) -> tuple:
@@ -139,10 +142,14 @@ def effective_key(knobs: dict) -> tuple:
 
 
 def init(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: pd.Series,
-         cache_root: Path) -> None:
+         cache_root: Path, validation: tuple[str, str] = VALIDATION,
+         window_train: str | None = "5y",
+         grid_entries: list[dict] | None = None) -> None:
     """Called once per worker process."""
     _STATE.update(panel=panel, feature_cols=feature_cols,
-                  benchmark_close=benchmark_close, cache_root=Path(cache_root))
+                  benchmark_close=benchmark_close, cache_root=Path(cache_root),
+                  validation=tuple(validation), window_train=window_train,
+                  grid_entries=grid_entries)
 
 
 def combo_slug(rebalance: str, horizon: int, refit: str) -> str:
@@ -155,11 +162,15 @@ def score_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
     panel = _STATE["panel"]
     feature_cols = _STATE["feature_cols"]
     cache_root = _STATE["cache_root"]
+    validation = _STATE["validation"]
+    window_train = _STATE["window_train"]
+    grid_entries = _STATE["grid_entries"]
 
     pred_config = book_config(horizon, rebalance=rebalance, refit=refit,
-                              model=spec.name, book=dict(vol_target=False, vol_rf=0.0))
+                              model=spec.name, book=dict(vol_target=False, vol_rf=0.0),
+                              window_train=window_train, grid_entries=grid_entries)
     try:
-        preds = cached_predictions(panel, feature_cols, pred_config, spec, *VALIDATION,
+        preds = cached_predictions(panel, feature_cols, pred_config, spec, *validation,
                                    cache_root=cache_root, refresh=refresh, verbose=False)
     except DegenerateCandidate as exc:
         # constant predictions: no cross-sectional information, so every book cell of
@@ -167,7 +178,7 @@ def score_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
         return [_degenerate_row(spec, rebalance, horizon, refit, name, knobs, exc.record)
                 for name, knobs, note in BOOKS]
 
-    warm = cached_warmup(panel, feature_cols, pred_config, spec, VALIDATION[0],
+    warm = cached_warmup(panel, feature_cols, pred_config, spec, validation[0],
                          bars=VOL_WARMUP_BARS, cache_root=cache_root,
                          refresh=refresh, verbose=False)
 
@@ -180,7 +191,8 @@ def score_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
         metrics = simulated.get(effective_key(knobs))
         if metrics is None:
             config = book_config(horizon, rebalance=rebalance, refit=refit,
-                                 model=spec.name, book=knobs)
+                                 model=spec.name, book=knobs,
+                                 window_train=window_train, grid_entries=grid_entries)
             params = config.forecast_vol
             # the rolling forecast volatility depends only on the predictions and the
             # vol window, so five distinct windows cover all book cells

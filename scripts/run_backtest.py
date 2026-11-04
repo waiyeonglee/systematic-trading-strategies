@@ -141,7 +141,9 @@ def default_config(horizon: int, vol_target: bool | float | None,
                    vol_window: int = 24, rebalance: str = "4w",
                    refit_every: str = "QE",
                    vol_cap: float = 1.0, vol_rf: float = 0.03,
-                   lev_fee: float = 0.0) -> PipelineConfig:
+                   lev_fee: float = 0.0,
+                   window_train: str | None = "5y",
+                   grid_entries: list[dict] | None = None) -> PipelineConfig:
     """Pipeline settings with the fixed v2 window.
 
     ``model`` pins a single spec (``mode: single``, a single ranked cell); ``None``
@@ -150,6 +152,11 @@ def default_config(horizon: int, vol_target: bool | float | None,
     accepts a float (annualized target, e.g. ``0.20`` for 20%), ``True`` (default
     10%), or ``False`` / ``None`` (overlay off). ``vol_min_periods`` is clamped to
     the window so short vol windows (4w/8w/12w) stay valid.
+
+    ``window_train`` is the rolling training window (``"5y"`` = the 260-bar v2
+    default; ``"8y"`` = 416 bars for the macro study). ``grid_entries`` replaces
+    :data:`GRID_ENTRIES` when the pinned ``model`` comes from a different grid (e.g.
+    the elastic-net-only macro grid, which adds ``l1_ratio`` 0 and 1).
 
     Raises:
         ValueError: if ``horizon`` is not a valid target, if the rebalance
@@ -170,7 +177,7 @@ def default_config(horizon: int, vol_target: bool | float | None,
             f"refit {refit_every} ({REFIT_TO_BARS[refit_every]}w) < "
             f"rebalance {rebalance} ({FREQ_TO_BARS[rebalance]}w)")
     target_col = MODEL_TARGETS[f"absolute{horizon}"]
-    specs = tuple(specs_from_config(GRID_ENTRIES))
+    specs = tuple(specs_from_config(GRID_ENTRIES if grid_entries is None else grid_entries))
     grid = (next(s for s in specs if s.name == model),) if model else specs
     target_vol = 0.10 if vol_target is True else (vol_target if vol_target else None)
     forecast_vol = ForecastVolParams(
@@ -183,7 +190,8 @@ def default_config(horizon: int, vol_target: bool | float | None,
     return PipelineConfig(
         freq="weekly", strategy="forecast_vol_scaled",
         mode="single" if model else "selection", initial_capital_usd=100_000.0,
-        refit_every=refit_every, window_train="5y", embargo=MODEL_EMBARGO[f"absolute{horizon}"],
+        refit_every=refit_every, window_train=window_train,
+        embargo=MODEL_EMBARGO[f"absolute{horizon}"],
         grid=grid, seed=DEFAULT_SEED, target_col=target_col, forecast_vol=forecast_vol,
     )
 

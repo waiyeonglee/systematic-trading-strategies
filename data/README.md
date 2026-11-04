@@ -5,10 +5,12 @@ Standalone dataset for `trend-following-strategy-v2`. Everything the pipeline re
 ```
 data/
   raw/weekly/XLB.csv ...           one adjusted OHLCV CSV per tradable ETF + benchmark (17 tickers)
+  raw/Data2025.xlsx                Welch-Goyal monthly macro predictors (tbl/tms/dfy/dfr)
   additional/
     fear-greed.csv                 CNN Fear & Greed Index, one dated row per observation
   features/weekly/                 rebuilt by `scripts/build_features.py`
     features.csv                   (date, ticker, 21 features, selected label) — git-ignored
+    features_macro.csv             (date, ticker, 114 macro-interaction columns) — git-ignored
     feature_label_correlation.csv
     feature_label_correlation.png
   README.md
@@ -69,6 +71,27 @@ END_DATE_EXCLUSIVE = "2026-01-02"  # yfinance exclusive end  <-- the setting
 - `python scripts/fetch_data.py` — full re-fetch; `--dry-run` prints the settings
   without downloading.
 
+## raw/Data2025.xlsx (macro predictors)
+
+Welch-Goyal "PredictorData" workbook (the standard monthly predictor dataset),
+1871-01 → 2025-12. Downloaded from **Amit Goyal's predictor-data page,
+<https://sites.google.com/view/agoyal145>** (the `PredictorData2025` workbook);
+the accompanying paper is Goyal & Welch (2008), *A Comprehensive Look at the
+Empirical Performance of Equity Premium Prediction*, Review of Financial Studies
+21(4), 1455–1508. Only the `Monthly` sheet is read, and only four columns:
+
+| Column | Definition | Used as |
+|---|---|---|
+| `tbl` | 3-month T-bill rate (decimal) | macro state `tbl` |
+| `tms` | `lty - tbl` (long govt yield − T-bill) | macro state `tms` |
+| `dfy` | `BAA - AAA` | macro state `dfy` |
+| `dfr` | `corpr - ltr` (corporate − long govt return) | macro state `dfr` |
+
+`dfr` is why the workbook is needed — it has no FRED equivalent. The `ReadMe` sheet
+in the same file documents every column. Fifth macro variable, `fear_greed`, comes
+from `additional/fear-greed.csv` (month-end value). Bars dated in month `M` use the
+month `M - 1` values (1-month publication lag, no lookahead).
+
 ## additional/fear-greed.csv
 
 CNN Fear & Greed Index from the open-source
@@ -91,6 +114,13 @@ Rebuilt by `scripts/build_features.py` from `raw/weekly/` + `additional/fear-gre
   last fully labelled date is 2025-09-26. Rebuild generated files after label changes.
 - `feature_label_correlation.csv` / `.png` — Pearson correlation of each feature
   vs the label across all labelled dates.
+- `features_macro.csv` — the macro-interaction panel used only by the macro study:
+  one row per `(date, ticker)` with the **19 firm features × (5 macro + const) = 114
+  interaction columns** (named `<firm>__x__<macro>`), the five raw macro levels
+  (`macro_*`), `fwd_ret` and the 1/4/12-bar labels. It is **~30 MB and git-ignored**,
+  so it is not part of a clone; the study rebuilds it in memory. Regenerate with
+  `python scripts/build_features_macro.py` (or `--out <path>`), and see
+  `../agents/macro_study.md` for the construction and timing rules.
 - See `../agents/feature_engineering.md` for the full definition.
 
 ## Notes

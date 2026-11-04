@@ -169,6 +169,10 @@ def run_rank(models: str | None, combos: str | None, refresh: bool, jobs: int,
     batches = [tasks[i:i + BATCH] for i in range(0, len(tasks), BATCH)]
     progress_every = max(1, len(batches) // 20)
 
+    # n_jobs=1 runs in-process and never calls the worker initializer, so seed the
+    # state here as well (harmless when the pool does call it).
+    study_worker.init(PANEL, FEATURE_COLS, BENCHMARK_CLOSE, CACHE_ROOT)
+
     rows: list[dict] = []
     for number, produced in enumerate(
             Parallel(n_jobs=jobs, return_as="generator_unordered",

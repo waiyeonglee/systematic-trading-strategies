@@ -237,12 +237,15 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
                  config: PipelineConfig, test_start: str = "2023-01-01",
                  test_end: str = "2025-12-31", window_val: str = "3y",
                  out_dir: Path | None = None,
-                 report_prefix: str = "") -> dict:
+                 report_prefix: str = "",
+                 publish_figures: bool = True,
+                 plots_root: Path | None = None) -> dict:
     """Select on the validation window and measure the winner once on the test window.
 
     Args:
         panel: Feature panel indexed by ``(date, ticker)``.
-        feature_cols: Model inputs (21 features in the v2 panel).
+        feature_cols: Model inputs (21 features in the v2 panel; 114 in the macro
+            interaction panel).
         benchmark_close: Benchmark (SPY) adjusted close covering the panel, by date.
         config: Pipeline settings.
         test_start / test_end / window_val: Split bounds; validation is the
@@ -251,6 +254,13 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
         report_prefix: Prepended to the published figure folders
             (``results/plots/<report_prefix><phase>/``) so a second selection
             criterion can keep its own figure set.
+        publish_figures: Copy the run's figures into the canonical
+            ``<plots_root>/<phase>/`` folders. Set ``False`` for a study that only
+            wants the figures in its own run folder.
+        plots_root: Parent of the phase folders the figures are published to;
+            ``None`` keeps the v2 target ``results/plots``. The macro study passes
+            ``results/plots_macro`` so its figures never mix with the pre-registered
+            v2 set.
 
     Returns:
         Dict with ``windows``, ``train/val/test``, ``ranking``, ``selected``, ``preds``,
@@ -300,7 +310,8 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
                    benchmark_close=benchmark_close)
 
     if out_dir is not None:
-        evaluate_all(out_dir, results, feature_cols, report_prefix=report_prefix)
+        evaluate_all(out_dir, results, feature_cols, report_prefix=report_prefix,
+                     publish_figures=publish_figures, plots_root=plots_root)
     return results
 
 
@@ -318,20 +329,32 @@ def report_phases_for(results: dict) -> tuple[tuple[str, str], ...]:
     return REPORT_PHASES if (t0, t1) == REPORT_TEST_WINDOW else ()
 
 
-def publish_report_figures(out_dir: Path, phase: str, window: str) -> Path:
-    """Copy the window's 10 figures to ``results/plots/<phase>/`` (prefix stripped).
+def publish_report_figures(out_dir: Path, phase: str, window: str,
+                           plots_root: Path | None = None) -> Path:
+    """Copy the window's 10 figures to ``<plots_root>/<phase>/`` (prefix stripped).
 
-    The canonical report figures live in ``results/plots/<phase>/``; the per-run
-    ``plots/`` folder is transient and removed by :func:`evaluate_all`. Files are
-    named ``01_<stem>.png`` … ``10_<stem>.png`` because the folder name already
-    identifies the phase. ``window`` is the figure-name prefix written by
+    The canonical report figures live under a ``plots`` root; the per-run ``plots/``
+    folder is transient and removed by :func:`evaluate_all` once they are copied.
+    Files are named ``01_<stem>.png`` … ``10_<stem>.png`` because the folder name
+    already identifies the phase. ``window`` is the figure-name prefix written by
     :func:`plots.plot_run` (``"test"`` / ``"validation"``), ``phase`` the folder
-    (``"test"`` / ``"val"``).
+    (``"test"`` / ``"val"``), and ``plots_root`` the parent of those phase folders
+    (``results/plots`` when ``None``; the macro study uses ``results/plots_macro``).
+
+    Args:
+        out_dir: Run folder holding the transient ``plots/`` directory.
+        phase: Destination folder name, ``"test"`` or ``"val"``.
+        window: Figure-name prefix produced by :func:`plots.plot_run`.
+        plots_root: Parent folder of the phase folders; defaults to
+            ``results/plots``.
+
+    Returns:
+        The destination folder.
     """
     from utils.paths import RESULTS_DIR
 
     src = Path(out_dir) / "plots"
-    dst = RESULTS_DIR / "plots" / phase
+    dst = Path(plots_root if plots_root is not None else RESULTS_DIR / "plots") / phase
     dst.mkdir(parents=True, exist_ok=True)
     figures = sorted(src.glob(f"{window}_*.png"))
     if not figures:
@@ -343,7 +366,8 @@ def publish_report_figures(out_dir: Path, phase: str, window: str) -> Path:
 
 
 def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
-                 report_prefix: str = "") -> Path:
+                 report_prefix: str = "", publish_figures: bool = True,
+                 plots_root: Path | None = None) -> Path:
     """Write the run's tables (validation ranking, comparison, forecasts, coefficients).
 
     Args:
@@ -351,6 +375,11 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
         results: Output of :func:`run_pipeline`.
         feature_cols: Model input columns (excludes labels and book helpers).
         report_prefix: Prepended to the published figure folders.
+        publish_figures: Copy the figures to ``<plots_root>/<phase>/`` and drop the
+            per-run ``plots/`` folder. ``False`` keeps the figures in
+            ``<out_dir>/plots/`` and publishes nothing.
+        plots_root: Destination parent of the phase folders; ``None`` uses
+            ``results/plots`` (the macro study passes ``results/plots_macro``).
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -401,7 +430,7 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
               for name, values in comparison.items() if name != "SPY B&H"}
     save_nested(no_spy, out_dir, "performance_by_period_no_spy")
 
-    save_parameters(run_parameters(results), out_dir)
+    save_parameters(run_parameters(results, feature_cols), out_dir)
 
     # time series + report figures: series stay in the run folder, the canonical
     # report figures go to results/plots/<phase>/ for both measured windows
@@ -411,10 +440,11 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
                 results["val_benchmarks"])
     plot_run(results, out_dir)
 
-    for phase, window in report_phases_for(results):
-        publish_report_figures(out_dir, f"{report_prefix}{phase}", window)
+    for phase, window in (report_phases_for(results) if publish_figures else ()):
+        publish_report_figures(out_dir, f"{report_prefix}{phase}", window,
+                               plots_root=plots_root)
     plots_dir = out_dir / "plots"
-    if plots_dir.exists():
+    if publish_figures and plots_dir.exists():
         shutil.rmtree(plots_dir)
 
     print_summary(results)
@@ -457,20 +487,29 @@ def selected_spec(config: PipelineConfig, name: str) -> ModelSpec:
     raise ValueError(f"selected model {name!r} is not in the configured grid")
 
 
-def run_parameters(results: dict) -> dict:
-    """Plain mapping of the effective run settings, for ``run_config.yaml``."""
+def run_parameters(results: dict, feature_cols: list[str] | None = None) -> dict:
+    """Plain mapping of the effective run settings, for ``run_config.yaml``.
+
+    ``feature_cols`` is the actual input list the run used; ``None`` falls back to the
+    21-column v2 set, so older callers keep the record they always had. The macro
+    study passes its 114 interaction columns.
+    """
     from features import feature_columns
     from utils.config import END_DATE_INCLUSIVE, START_DATE
 
     config: PipelineConfig = results["config"]
     windows = results["windows"]
-    feature_cols = feature_columns(use_fear_greed=True)
+    columns = (list(feature_cols) if feature_cols is not None
+               else feature_columns(use_fear_greed=True))
     return {
         "run": results["run_tag"],
         "seed": config.seed,
         "data": {"start_date": START_DATE, "end_date": END_DATE_INCLUSIVE},
-        "features": {"frequency": config.freq, "use_fear_greed": True,
-                     "columns": feature_cols},
+        "features": {"frequency": config.freq,
+                     "use_fear_greed": any("fear_greed" in str(name)
+                                           for name in columns),
+                     "count": len(columns),
+                     "columns": columns},
         "validation": {
             "test_start": windows["test"][0],
             "test_end": windows["test"][1],
