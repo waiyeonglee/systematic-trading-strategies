@@ -228,12 +228,8 @@ SUCCESS_MAXDD_LE_BENCHMARK = True
 # by net Sharpe on the combined 2017-2022 window (validation_and_ablation.md §3):
 #   93 specs x 14 valid (rebalance, look-ahead, refit) combos x 45 book cells
 #   = 58,590 candidates, ONE ranking, degenerate cells excluded from the win.
-# Two selection criteria over that one scored space (§3.1 of the protocol doc):
-#   raw    — highest net Sharpe (the original record)
-#   regime — profitable in >= 5/6 validation years AND up-capture >= 0.40, then the
-#            best worst-calendar-year Sharpe (maximin). Down-capture is recorded but
-#            NOT gated: requiring extra protection is the bias that produced the
-#            failed raw selection.
+# One selection criterion over that scored space (§3.1 of the protocol doc): the
+# highest net Sharpe wins.
 # Valid combos obey look-ahead >= rebalance cadence AND refit_interval >= rebalance
 # cadence: W-FRI x {weekly pairs} (3), ME x {1w, 4w cadences} (5), QE x {all 6} (14).
 # Walk-forward mechanics fixed (not tuned): rolling 5y, embargo = horizon, seed =

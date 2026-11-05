@@ -147,20 +147,15 @@ def _specs(text: str | None) -> list[ModelSpec]:
 # rank — the single validation stage
 # ---------------------------------------------------------------------------
 
-def run_rank(models: str | None, combos: str | None, refresh: bool, jobs: int,
-             criterion: str = "raw") -> Path:
+def run_rank(models: str | None, combos: str | None, refresh: bool, jobs: int) -> Path:
     """Replay the cached predictions through the whole model x book space and rank it.
 
-    ``criterion="raw"`` picks the highest net Sharpe (the original record).
-    ``criterion="regime"`` first requires the regime-stratified rule in
-    :mod:`study_worker` (profitable in most calendar years, keeps the upside, absorbs
-    the downside) and then takes the highest net Sharpe among the survivors. The two
-    criteria write to distinct files so both records coexist.
+    The winner is the highest net Sharpe on the validation window.
     """
     specs = _specs(models)
     pairs = _parse_combos(combos)
     total = len(specs) * len(pairs) * len(BOOKS)
-    print(f"joint ranking ({criterion}): {len(specs)} specs x {len(pairs)} combos x "
+    print(f"joint ranking: {len(specs)} specs x {len(pairs)} combos x "
           f"{len(BOOKS)} books = {total} candidates on {VALIDATION[0]}..{VALIDATION[1]} "
           f"(seed {SEED}, jobs {jobs}, batch {BATCH})", flush=True)
 
@@ -186,14 +181,12 @@ def run_rank(models: str | None, combos: str | None, refresh: bool, jobs: int,
             print(f"  {done}/{len(tasks)} candidates scored ({len(rows)} rows)",
                   flush=True)
 
-    suffix = "" if criterion == "raw" else f"_{criterion}"
     ranking = (pd.DataFrame(rows)
                .sort_values("net_sharpe", ascending=False, na_position="last")
                .reset_index(drop=True))
     ranking.insert(0, "rank", range(1, len(ranking) + 1))
-    save_table(ranking, STUDY_DIR, f"validation_ranking{suffix}", index=False)
+    save_table(ranking, STUDY_DIR, "validation_ranking", index=False)
     _save({"scheme": "joint model x strategy ranking",
-           "criterion": criterion,
            "window": list(VALIDATION), "seed": SEED,
            "specs": [spec.name for spec in specs],
            "combos": [combo_slug(*pair) for pair in pairs],
@@ -201,38 +194,12 @@ def run_rank(models: str | None, combos: str | None, refresh: bool, jobs: int,
                      for name, knobs, note in BOOKS],
            "candidates": total,
            "cache": _rel(CACHE_ROOT)},
-          STUDY_DIR / f"run_parameters{suffix}.json")
+          STUDY_DIR / "run_parameters.json")
 
     live = ranking[~ranking["degenerate"] & ranking["net_sharpe"].notna()]
     if live.empty:
         raise SystemExit("no non-degenerate candidate; nothing to rank")
-    if criterion == "regime":
-        # pre-registered gate first, then the regime-stratified objective: the best
-        # worst-calendar-year Sharpe among the survivors (maximin).
-        passed = live[live["regime_pass"].astype(bool)]
-        for years in (6, 5, 4):
-            count = int((live["pos_years"] >= years).sum())
-            print(f"  sensitivity: {count} rows profitable in >= {years}/6 years")
-        print(f"  regime gate (>= {study_worker.REGIME_MIN_POS_YEARS}/6 years, "
-              f"up-capture >= {study_worker.REGIME_MIN_UP_CAPTURE:.2f}): "
-              f"{len(passed)} of {len(live)} live rows pass", flush=True)
-        if passed.empty:
-            raise SystemExit("no candidate clears the regime-stratified rule; "
-                             "see the sensitivity ladder above")
-        best = passed.sort_values(["yr_sharpe_min", "net_sharpe"],
-                                  ascending=False).iloc[0]
-        raw_best = live.iloc[0]
-        gated_max = passed.iloc[0]
-        print(f"  reference: raw winner {raw_best['model']} / {raw_best['book']} at "
-              f"{raw_best['net_sharpe']:.4f} (worst year "
-              f"{raw_best['yr_sharpe_min']:+.2f}, up-capture "
-              f"{raw_best['up_capture']:.2f}) -> "
-              f"{'PASSES' if raw_best['regime_pass'] else 'FAILS'} the gate")
-        print(f"  gated max-Sharpe (the gate alone changes nothing): "
-              f"{gated_max['model']} / {gated_max['book']} at "
-              f"{gated_max['net_sharpe']:.4f}")
-    else:
-        best = live.iloc[0]
+    best = live.iloc[0]
 
     spec = ModelSpec.from_record({"family": best["family"], "alpha": best["alpha"],
                                   "l1_ratio": _optional(best["l1_ratio"]),
@@ -247,15 +214,9 @@ def run_rank(models: str | None, combos: str | None, refresh: bool, jobs: int,
                                       "lev_fee": float(best["lev_fee"])})
     payload = {
         "phase": "joint-ranking",
-        "criterion": criterion,
         "window": list(VALIDATION), "seed": SEED,
         "candidates": {"specs": len(specs), "combos": len(pairs),
-                       "books": len(BOOKS), "scored": int(len(ranking)),
-                       "regime_passed": int(live["regime_pass"].astype(bool).sum())},
-        "rule": (None if criterion == "raw" else
-                 {"min_pos_years": study_worker.REGIME_MIN_POS_YEARS,
-                  "min_up_capture": study_worker.REGIME_MIN_UP_CAPTURE,
-                  "rank_by": "yr_sharpe_min (worst calendar year), then net_sharpe"}),
+                       "books": len(BOOKS), "scored": int(len(ranking))},
         "model": {"name": best["model"], "family": best["family"],
                   "alpha": float(best["alpha"]),
                   "l1_ratio": _optional(best["l1_ratio"]),
@@ -275,47 +236,30 @@ def run_rank(models: str | None, combos: str | None, refresh: bool, jobs: int,
                     "ann_vol": float(best["ann_vol"]),
                     "hit_rate": float(best["hit_rate"]),
                     "avg_turnover": float(best["avg_turnover"])},
-        "regime": {"pos_years": int(best["pos_years"]),
-                   "n_years": int(best["n_years"]),
-                   "yr_sharpe_min": float(best["yr_sharpe_min"]),
-                   "up_capture": float(best["up_capture"]),
-                   "down_capture": float(best["down_capture"])},
         "cache": _rel(cache_path(winner_config, spec.name, *VALIDATION,
                                  cache_root=CACHE_ROOT)),
-        "ranking": _rel(STUDY_DIR / f"validation_ranking{suffix}.csv"),
-        "note": ("best net Sharpe over the joint model x strategy space" if
-                 criterion == "raw" else
-                 "best worst-calendar-year Sharpe among the candidates clearing the "
-                 "pre-registered regime-stratified rule") + \
-                "; promotion still requires the pre-registered ADR and the single "
-                "test draw",
+        "ranking": _rel(STUDY_DIR / "validation_ranking.csv"),
+        "note": "best net Sharpe over the joint model x strategy space; promotion "
+                "still requires the pre-registered ADR and the single test draw",
     }
-    _save(payload, STUDY_DIR / f"validation_winner{suffix}.json")
-    print(f"\n======== JOINT-RANKING WINNER ({criterion}) ========")
+    _save(payload, STUDY_DIR / "validation_winner.json")
+    print("\n======== JOINT-RANKING WINNER ========")
     print(json.dumps(_sanitize(payload), indent=2))
-    print(f"\nranking: {_rel(STUDY_DIR / f'validation_ranking{suffix}.csv')} "
+    print(f"\nranking: {_rel(STUDY_DIR / 'validation_ranking.csv')} "
           f"({len(ranking)} rows)")
-    return STUDY_DIR / f"validation_ranking{suffix}.csv"
+    return STUDY_DIR / "validation_ranking.csv"
 
 
 # ---------------------------------------------------------------------------
 # test — single pre-registered draw of the joint winner
 # ---------------------------------------------------------------------------
 
-def run_test(criterion: str = "raw") -> None:
-    """Measure the ranking winner once on 2023-2025.
-
-    ``criterion`` selects which winner file is drawn (``validation_winner.json`` for
-    the highest-Sharpe record, ``validation_winner_regime.json`` for the
-    regime-stratified one) and namespaces the published figures, so both draws can
-    coexist under ``results/plots/``.
-    """
-    suffix = "" if criterion == "raw" else f"_{criterion}"
-    winner_path = STUDY_DIR / f"validation_winner{suffix}.json"
+def run_test() -> None:
+    """Measure the ranking winner once on 2023-2025."""
+    winner_path = STUDY_DIR / "validation_winner.json"
     if not winner_path.exists():
         raise SystemExit(f"missing {winner_path}; run `python scripts/run_study.py "
-                         f"rank" + ("" if criterion == "raw" else f" --criterion {criterion}")
-                         + "` first")
+                         f"rank` first")
     winner = json.loads(winner_path.read_text())
     if int(winner.get("seed", -1)) != SEED or list(winner.get("window", [])) != list(VALIDATION):
         raise SystemExit("winner file was written under another seed/window; rerun rank")
@@ -324,13 +268,12 @@ def run_test(criterion: str = "raw") -> None:
     config = book_config(int(combo["look_ahead"]), rebalance=combo["rebalance"],
                          refit=combo["refit"], model=model["name"], book=book)
     out_dir = RESULTS_DIR / run_tag(config, *TEST, window_val=VAL_WINDOW_SLUG)
-    print(f"TEST draw ({criterion}): {model['name']} / {combo['target']} / "
+    print(f"TEST draw: {model['name']} / {combo['target']} / "
           f"{combo['rebalance']} / {combo['refit']} with the {winner['book']['name']} "
           f"book on {TEST[0]}..{TEST[1]}")
     run_pipeline(PANEL, FEATURE_COLS, BENCHMARK_CLOSE, config,
                  test_start=TEST[0], test_end=TEST[1], window_val=VAL_WINDOW_SLUG,
-                 out_dir=out_dir,
-                 report_prefix="" if criterion == "raw" else f"{criterion}_")
+                 out_dir=out_dir)
     print(f"results: {_rel(out_dir)}")
 
 
@@ -353,11 +296,6 @@ def main() -> None:
                         help="worker processes (0 = min(8, cpu count))")
     parser.add_argument("--refresh-cache", action="store_true",
                         help="recompute cached predictions instead of reusing them")
-    parser.add_argument("--criterion", default="raw", choices=("raw", "regime"),
-                        help="raw = highest validation net Sharpe (original record); "
-                             "regime = pre-registered regime-stratified rule (profitable "
-                             "in most years, keeps the benchmark's upside) then the "
-                             "best worst-calendar-year Sharpe among the survivors")
     args = parser.parse_args()
 
     if args.study_dir:
@@ -374,9 +312,9 @@ def main() -> None:
 
     if args.command == "rank":
         jobs = args.jobs if args.jobs > 0 else min(8, os.cpu_count() or 1)
-        run_rank(args.models, args.combos, args.refresh_cache, jobs, args.criterion)
+        run_rank(args.models, args.combos, args.refresh_cache, jobs)
     else:
-        run_test(args.criterion)
+        run_test()
 
 
 if __name__ == "__main__":

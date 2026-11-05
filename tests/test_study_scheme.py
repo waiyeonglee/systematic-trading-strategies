@@ -163,38 +163,3 @@ def test_book_space_is_the_declared_product():
     # without a volatility target the cap cannot bind, so 5 of the 45 cells repeat
     # an otherwise identical book and are simulated once
     assert len({worker.effective_key(knobs) for _, knobs, _ in worker.BOOKS}) == 40
-
-
-def test_regime_metrics_and_gate():
-    rng = np.random.default_rng(DEFAULT_SEED)
-    dates = pd.date_range("2020-01-03", periods=104, freq="W-FRI")
-    # a benchmark with one up year and one down year
-    benchmark = pd.Series(
-        np.r_[0.010 + rng.normal(0, 0.002, 52), -0.010 + rng.normal(0, 0.002, 52)],
-        index=dates)
-    # a book that is profitable in both, taking ~60% of the upside and losing (much)
-    # less, i.e. still up, when the benchmark falls
-    book = pd.Series(
-        np.r_[0.006 + rng.normal(0, 0.002, 52), 0.002 + rng.normal(0, 0.002, 52)],
-        index=dates)
-    metrics = worker.regime_metrics(book, benchmark, ppy=52)
-
-    assert metrics["pos_years"] == 2 and metrics["n_years"] == 2
-    assert metrics["yr_sharpe_min"] > 0
-    assert 0.4 < metrics["up_capture"] < 0.9
-    assert metrics["down_capture"] < 0.5
-    assert worker.regime_pass(metrics)
-
-    # a book that needs a crash to make money fails: only 1 of 2 years profitable
-    losing = pd.Series(
-        np.r_[-0.006 + rng.normal(0, 0.002, 52), 0.020 + rng.normal(0, 0.002, 52)],
-        index=dates)
-    failed = worker.regime_metrics(losing, benchmark, ppy=52)
-    assert failed["pos_years"] == 1
-    assert not worker.regime_pass(failed)
-
-
-def test_regime_gate_thresholds_are_the_pre_registered_ones():
-    assert worker.REGIME_MIN_POS_YEARS == 5
-    assert worker.REGIME_WINDOW_YEARS == 6
-    assert worker.REGIME_MIN_UP_CAPTURE == 0.40

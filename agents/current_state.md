@@ -1585,7 +1585,7 @@ the migration history.
 
 ---
 
-## Step 19 — Regime-stratified selection criterion, both records kept (2026-11-04)
+## Step 19 — Regime-stratified selection criterion, both records kept (2026-11-04) — removed in Step 20
 ### Goal (user request)
 After reviewing the figures the user judged the model/book selection sound but the
 validation regime too distant from the test: "implement the regime-stratified and pick
@@ -1640,5 +1640,43 @@ for the report.
 - 2023-2025 now carries **three** measurements; documented as a remeasurement window.
 
 - No stale references to the deleted script outside this history log.
+
+---
+
+## Step 20 — Regime-stratified criterion removed (2026-11-06)
+
+### Goal (user request)
+"Remove all artifacts and code of the regime criterion." The Step 19 criterion and
+its outputs are gone; the single max-Sharpe ranking is the only selection rule again.
+
+### What changed
+- **`scripts/study_worker.py`** — deleted `REGIME_MIN_POS_YEARS`,
+  `REGIME_WINDOW_YEARS`, `REGIME_MIN_UP_CAPTURE`, `regime_metrics()` and
+  `regime_pass()`; the per-row columns `pos_years` / `n_years` / `yr_sharpe_min` /
+  `up_capture` / `down_capture` / `regime_pass` and the benchmark series they needed
+  are gone, so a ranking row is the model/combo/book metrics only.
+- **`scripts/run_study.py`**, **`scripts/run_study_macro.py`** — `--criterion` and the
+  `_{criterion}` filename suffix removed; `rank`/`test` always write the plain
+  `validation_ranking.csv` / `validation_winner.json` / `run_parameters.json`.
+- **`src/pipeline.py`** — `report_prefix` removed from `run_pipeline` /
+  `evaluate_all` / figure publishing (it existed only to namespace the regime figure
+  sets).
+- **Tests** — `test_regime_metrics_and_gate` and
+  `test_regime_gate_thresholds_are_the_pre_registered_ones` deleted.
+- **Artifacts deleted:** `results/_study*/validation_ranking_regime.csv`,
+  `validation_winner_regime.json`, `run_parameters_regime.json`;
+  `results/plots{,_macro}/regime_{test,val}/`; the regime test draws
+  `results/weekly_fg_roll5y_val6y_qrefit_rff_a0.01_d100_g0.01_2023-2025` and
+  `results/weekly_fg_roll8y_val4y_qrefit_enet_a0.01_r0.75_2023-2025_macro`.
+- **Artifacts rewritten:** the regime columns stripped from
+  `results/_study_macro/validation_ranking.csv`; the `criterion` / `rule` / `regime` /
+  `candidates.regime_passed` keys stripped from
+  `results/_study_macro/{validation_winner,run_parameters}.json`.
+- **Docs** — `agents/validation_and_ablation.md` §3.1 (one criterion), §4 (schema and
+  files), §5.2 (marked removed), §6 (status + history); `agents/macro_study.md`
+  (selection + outputs); `agents/model_design.py` §6; `README.md` (usage).
+
+### Notes
+- The deleted numbers are preserved in Step 19 above; nothing else referenced them.
 
 

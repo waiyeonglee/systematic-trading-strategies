@@ -88,18 +88,18 @@ No RFF family: the point of this study is fast iteration over a linear model wit
 explicit interactions. `l1_ratio=0` is ridge and `l1_ratio=1` is lasso, so the family
 ends are covered.
 
-Selection criteria are the same two as `run_study.py` (`--criterion raw|regime`). The
-regime rule is rate-based (`pos_years * 6 >= 5 * n_years`), so on a 4-year validation
-window it requires **4 of 4** profitable years.
+Selection is the same single criterion as `run_study.py`: the highest `net_sharpe` on
+the validation window wins. (A regime-stratified second criterion ran on 2026-11-04
+and was removed on 2026-11-06; see `agents/current_state.md` Step 19.)
 
 ## 5. Outputs and isolation
 
 ```
 results/_study_macro/
   predictions/<start>_<end>/<freq>_la<h>_refit<slug>/<spec>.npz   # own cache, own panel signature
-  validation_ranking[_regime].csv
-  validation_winner[_regime].json      # includes split, window_train, feature block, regime metrics
-  run_parameters[_regime].json
+  validation_ranking.csv
+  validation_winner.json               # includes split, window_train, feature block
+  run_parameters.json
 results/weekly_roll8y_val4y_qrefit_<spec>_..._2023-2025_macro/     # test draw tables + series
 results/plots_macro/test/01_cumulative_returns.png … 10_oos_r2_by_year.png
 results/plots_macro/val/01_cumulative_returns.png  … 10_oos_r2_by_year.png

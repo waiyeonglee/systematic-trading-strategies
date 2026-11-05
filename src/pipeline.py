@@ -237,7 +237,6 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
                  config: PipelineConfig, test_start: str = "2023-01-01",
                  test_end: str = "2025-12-31", window_val: str = "3y",
                  out_dir: Path | None = None,
-                 report_prefix: str = "",
                  publish_figures: bool = True,
                  plots_root: Path | None = None) -> dict:
     """Select on the validation window and measure the winner once on the test window.
@@ -251,9 +250,6 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
         test_start / test_end / window_val: Split bounds; validation is the
             ``window_val`` span before ``test_start``.
         out_dir: Where tables are saved; ``None`` skips persistence.
-        report_prefix: Prepended to the published figure folders
-            (``results/plots/<report_prefix><phase>/``) so a second selection
-            criterion can keep its own figure set.
         publish_figures: Copy the run's figures into the canonical
             ``<plots_root>/<phase>/`` folders. Set ``False`` for a study that only
             wants the figures in its own run folder.
@@ -310,7 +306,7 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
                    benchmark_close=benchmark_close)
 
     if out_dir is not None:
-        evaluate_all(out_dir, results, feature_cols, report_prefix=report_prefix,
+        evaluate_all(out_dir, results, feature_cols,
                      publish_figures=publish_figures, plots_root=plots_root)
     return results
 
@@ -366,7 +362,7 @@ def publish_report_figures(out_dir: Path, phase: str, window: str,
 
 
 def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
-                 report_prefix: str = "", publish_figures: bool = True,
+                 publish_figures: bool = True,
                  plots_root: Path | None = None) -> Path:
     """Write the run's tables (validation ranking, comparison, forecasts, coefficients).
 
@@ -374,7 +370,6 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
         out_dir: Destination folder for the CSV tables.
         results: Output of :func:`run_pipeline`.
         feature_cols: Model input columns (excludes labels and book helpers).
-        report_prefix: Prepended to the published figure folders.
         publish_figures: Copy the figures to ``<plots_root>/<phase>/`` and drop the
             per-run ``plots/`` folder. ``False`` keeps the figures in
             ``<out_dir>/plots/`` and publishes nothing.
@@ -441,8 +436,7 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
     plot_run(results, out_dir)
 
     for phase, window in (report_phases_for(results) if publish_figures else ()):
-        publish_report_figures(out_dir, f"{report_prefix}{phase}", window,
-                               plots_root=plots_root)
+        publish_report_figures(out_dir, phase, window, plots_root=plots_root)
     plots_dir = out_dir / "plots"
     if publish_figures and plots_dir.exists():
         shutil.rmtree(plots_dir)

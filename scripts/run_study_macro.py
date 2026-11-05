@@ -26,7 +26,6 @@ Usage:
     python scripts/run_study_macro.py rank
     python scripts/run_study_macro.py rank --refits QE      # quarterly arm only (~8 min)
     python scripts/run_study_macro.py rank --jobs 4
-    python scripts/run_study_macro.py rank --criterion regime
     python scripts/run_study_macro.py test
 """
 
@@ -165,13 +164,10 @@ def _config(horizon: int, rebalance: str, refit: str, model: str, book: dict):
 # ---------------------------------------------------------------------------
 
 def run_rank(models: str | None, combos: str | None, refits: str | None, refresh: bool,
-             jobs: int, criterion: str = "raw") -> Path:
+             jobs: int) -> Path:
     """Replay the cached predictions through the whole model x book space and rank it.
 
-    ``criterion="raw"`` picks the highest net Sharpe. ``criterion="regime"`` first
-    requires the pre-registered regime rule in :mod:`study_worker` (profitable in most
-    calendar years, keeps the benchmark's upside) and then takes the best
-    worst-calendar-year Sharpe among the survivors.
+    The winner is the highest net Sharpe on the validation window.
 
     ``refits`` restricts the refit cadences (``"QE"`` = the quarterly arm only, which
     is ~85% cheaper than including the 208 weekly refits per prediction set).
@@ -179,7 +175,7 @@ def run_rank(models: str | None, combos: str | None, refits: str | None, refresh
     specs = _specs(models)
     pairs = _parse_combos(combos, _combos(refits))
     total = len(specs) * len(pairs) * len(BOOKS)
-    print(f"macro joint ranking ({criterion}): {len(specs)} specs x {len(pairs)} combos x "
+    print(f"macro joint ranking: {len(specs)} specs x {len(pairs)} combos x "
           f"{len(BOOKS)} books = {total} candidates on {VALIDATION[0]}..{VALIDATION[1]} "
           f"(train {TRAIN[0]}..{TRAIN[1]}, window {WINDOW_TRAIN}, seed {SEED}, "
           f"{len(FEATURE_COLS)} features, jobs {jobs})", flush=True)
@@ -208,14 +204,12 @@ def run_rank(models: str | None, combos: str | None, refits: str | None, refresh
             print(f"  {done}/{len(tasks)} candidates scored ({len(rows)} rows)",
                   flush=True)
 
-    suffix = "" if criterion == "raw" else f"_{criterion}"
     ranking = (pd.DataFrame(rows)
                .sort_values("net_sharpe", ascending=False, na_position="last")
                .reset_index(drop=True))
     ranking.insert(0, "rank", range(1, len(ranking) + 1))
-    save_table(ranking, STUDY_DIR, f"validation_ranking{suffix}", index=False)
+    save_table(ranking, STUDY_DIR, "validation_ranking", index=False)
     _save({"scheme": "macro-interaction joint model x strategy ranking",
-           "criterion": criterion,
            "split": {"train": list(TRAIN), "validation": list(VALIDATION),
                      "test": list(TEST)},
            "window_train": WINDOW_TRAIN,
@@ -229,24 +223,12 @@ def run_rank(models: str | None, combos: str | None, refits: str | None, refresh
                      for name, knobs, note in BOOKS],
            "candidates": total,
            "cache": _rel(CACHE_ROOT)},
-          STUDY_DIR / f"run_parameters{suffix}.json")
+          STUDY_DIR / "run_parameters.json")
 
     live = ranking[~ranking["degenerate"] & ranking["net_sharpe"].notna()]
     if live.empty:
         raise SystemExit("no non-degenerate candidate; nothing to rank")
-    if criterion == "regime":
-        passed = live[live["regime_pass"].astype(bool)]
-        print(f"  regime gate: {len(passed)} of {len(live)} live rows pass")
-        if passed.empty:
-            raise SystemExit("no candidate clears the regime-stratified rule")
-        best = passed.sort_values(["yr_sharpe_min", "net_sharpe"],
-                                  ascending=False).iloc[0]
-        raw_best = live.iloc[0]
-        print(f"  reference: raw winner {raw_best['model']} / {raw_best['book']} at "
-              f"{raw_best['net_sharpe']:.4f} (worst year "
-              f"{raw_best['yr_sharpe_min']:+.2f})")
-    else:
-        best = live.iloc[0]
+    best = live.iloc[0]
 
     winner_config = _config(int(best["look_ahead"]), best["rebalance"], best["refit"],
                             best["model"],
@@ -257,7 +239,6 @@ def run_rank(models: str | None, combos: str | None, refits: str | None, refresh
                              "lev_fee": float(best["lev_fee"])})
     payload = {
         "phase": "macro joint-ranking",
-        "criterion": criterion,
         "split": {"train": list(TRAIN), "validation": list(VALIDATION),
                   "test": list(TEST)},
         "window": list(VALIDATION), "seed": SEED,
@@ -265,8 +246,7 @@ def run_rank(models: str | None, combos: str | None, refits: str | None, refresh
         "features": {"firm_features": 19, "macro": list(MACRO_COLUMNS),
                      "interaction_columns": len(FEATURE_COLS)},
         "candidates": {"specs": len(specs), "combos": len(pairs),
-                       "books": len(BOOKS), "scored": int(len(ranking)),
-                       "regime_passed": int(live["regime_pass"].astype(bool).sum())},
+                       "books": len(BOOKS), "scored": int(len(ranking))},
         "model": {"name": best["model"], "family": best["family"],
                   "alpha": float(best["alpha"]),
                   "l1_ratio": _optional(best["l1_ratio"]),
@@ -286,23 +266,19 @@ def run_rank(models: str | None, combos: str | None, refits: str | None, refresh
                     "ann_vol": float(best["ann_vol"]),
                     "hit_rate": float(best["hit_rate"]),
                     "avg_turnover": float(best["avg_turnover"])},
-        "regime": {"pos_years": int(best["pos_years"]), "n_years": int(best["n_years"]),
-                   "yr_sharpe_min": float(best["yr_sharpe_min"]),
-                   "up_capture": float(best["up_capture"]),
-                   "down_capture": float(best["down_capture"])},
         "cache": _rel(CACHE_ROOT / f"{VALIDATION[0]}_{VALIDATION[1]}"
                       / f"weekly_la{int(best['look_ahead'])}_refit{best['refit']}"
                       / f"{best['model']}.npz"),
         "window_train_bars": winner_config.window_train_bars,
         "features_used": len(FEATURE_COLS),
-        "ranking": _rel(STUDY_DIR / f"validation_ranking{suffix}.csv"),
+        "ranking": _rel(STUDY_DIR / "validation_ranking.csv"),
         "note": "elastic-net-only macro-interaction study; promotion still requires the "
                 "pre-registered ADR and the single test draw",
     }
-    winner_path = _save(payload, STUDY_DIR / f"validation_winner{suffix}.json")
-    print(f"winner ({criterion}): {best['model']} / {best['target']} / "
+    winner_path = _save(payload, STUDY_DIR / "validation_winner.json")
+    print(f"winner: {best['model']} / {best['target']} / "
           f"{best['rebalance']} / {best['refit']} / {best['book']} -> net Sharpe "
-          f"{best['net_sharpe']:.4f} (worst year {best['yr_sharpe_min']:+.2f})")
+          f"{best['net_sharpe']:.4f}")
     print(f"written: {_rel(winner_path)}")
     return winner_path
 
@@ -311,14 +287,13 @@ def run_rank(models: str | None, combos: str | None, refits: str | None, refresh
 # test — the single draw of the ranking winner
 # ---------------------------------------------------------------------------
 
-def run_test(criterion: str = "raw") -> None:
+def run_test() -> None:
     """Measure the ranking winner once on 2023-2025 and publish its figures.
 
     The figures go to ``results/plots_macro/{test,val}/`` — a separate root from the
     v2 study's ``results/plots/``, so both figure sets coexist.
     """
-    suffix = "" if criterion == "raw" else f"_{criterion}"
-    winner_path = STUDY_DIR / f"validation_winner{suffix}.json"
+    winner_path = STUDY_DIR / "validation_winner.json"
     if not winner_path.exists():
         raise SystemExit(f"missing {winner_path}; run `python scripts/run_study_macro.py "
                          f"rank` first")
@@ -331,16 +306,14 @@ def run_test(criterion: str = "raw") -> None:
     config = _config(int(combo["look_ahead"]), combo["rebalance"], combo["refit"],
                      model["name"], book)
     out_dir = RESULTS_DIR / (run_tag(config, *TEST, window_val=VAL_WINDOW_SLUG) + "_macro")
-    print(f"macro TEST draw ({criterion}): {model['name']} / {combo['target']} / "
+    print(f"macro TEST draw: {model['name']} / {combo['target']} / "
           f"{combo['rebalance']} / {combo['refit']} with the {winner['book']['name']} "
           f"book on {TEST[0]}..{TEST[1]} (train 2011-2018, val 2019-2022)")
     run_pipeline(PANEL, FEATURE_COLS, BENCHMARK_CLOSE, config,
                  test_start=TEST[0], test_end=TEST[1], window_val=VAL_WINDOW_SLUG,
-                 out_dir=out_dir, publish_figures=True, plots_root=PLOTS_DIR,
-                 report_prefix="" if criterion == "raw" else f"{criterion}_")
+                 out_dir=out_dir, publish_figures=True, plots_root=PLOTS_DIR)
     print(f"results: {_rel(out_dir)}")
-    phases = "test,val" if criterion == "raw" else f"{criterion}_test,{criterion}_val"
-    print(f"figures: {_rel(PLOTS_DIR)}/{{{phases}}}/  (v2 results/plots/ untouched)")
+    print(f"figures: {_rel(PLOTS_DIR)}/{{test,val}}/  (v2 results/plots/ untouched)")
 
 
 # ---------------------------------------------------------------------------
@@ -366,9 +339,6 @@ def main() -> None:
                         help="worker processes (0 = min(8, cpu count))")
     parser.add_argument("--refresh-cache", action="store_true",
                         help="recompute cached predictions instead of reusing them")
-    parser.add_argument("--criterion", default="raw", choices=("raw", "regime"),
-                        help="raw = highest validation net Sharpe; regime = "
-                             "pre-registered regime-stratified rule first")
     args = parser.parse_args()
 
     if args.study_dir:
@@ -388,10 +358,9 @@ def main() -> None:
 
     if args.command == "rank":
         jobs = args.jobs if args.jobs > 0 else min(8, os.cpu_count() or 1)
-        run_rank(args.models, args.combos, args.refits, args.refresh_cache, jobs,
-                 args.criterion)
+        run_rank(args.models, args.combos, args.refits, args.refresh_cache, jobs)
     else:
-        run_test(args.criterion)
+        run_test()
 
 
 if __name__ == "__main__":
