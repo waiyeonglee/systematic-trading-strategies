@@ -1725,7 +1725,75 @@ set against 16.
 **Test draw (2023-2025), new winner:** net Sharpe **0.5286**, maxDD −8.85%, total
 +12.70%, ann vol 14.5% (by year: −0.02 / 0.30 / 1.40). Gate **fails** (bars: Sharpe
 1.3145, maxDD −7.79%); in every year the book also trails SPY (1.56 / 2.10 / 1.03) and
-equal weight. Draw folder
-`results/weekly_fg_roll8y_val4y_wkrefit_enet_a0.001_r1_vt0.1c1rf3_rweekly_2023-2025_macro`,
-figures refreshed in `results/plots_macro/{test,val}/`. The previous QE winner's draw
-(`..._qrefit_enet_a0.01_r1_vt0.2c1rf3_rweekly_2023-2025_macro`) is kept beside it.
+equal weight. Draw folder (moved into the study tree in Step 22)
+`results/_study_macro/draws/w-fri/weekly_fg_roll8y_val4y_wkrefit_enet_a0.001_r1_vt0.1c1rf3_rweekly_2023-2025`,
+figures in what Step 22 made `plots/w-fri/{test,val}/`. The previous QE winner's
+draw (`..._qrefit_...`, now `draws/qe/`) is kept beside it.
+
+
+## Step 22 — Output reorg into `_study*/draws/`, one test draw per refit arm (2026-11-06)
+
+Study outputs were flat: run folders sat in `results/` and figures in
+`results/plots{,_macro}/`, so a second draw could only overwrite the first and the
+folder names carried a `_macro` suffix to stay apart. Everything a study produces now
+lives inside its own folder:
+
+```
+results/_study{,_macro}/
+  predictions/  validation_ranking.csv  validation_winner.json  run_parameters.json
+  draws/<arm>/<run_tag>/      # arm = w-fri | me | qe
+  plots/<arm>/{test,val}/     # 10 PNGs per window, no sharing across arms
+  arm_comparison.txt          # per-arm test results + the winning arm
+```
+
+- **`scripts/run_study.py`**, **`scripts/run_study_macro.py`** — new `draw` command:
+  the best live ranking row of each refit arm (optionally filtered with
+  `--refits`) is drawn once on 2023-2025 into `draws/<arm>/<run_tag>/`, its figures
+  published to `plots/<arm>/{test,val}/`, and `arm_comparison.txt` written at the
+  study root. `test` keeps its meaning (single draw of the overall winner) but now routes
+  to the winner's arm folder; the macro `_macro` run-tag suffix is gone because the
+  folder supplies the isolation.
+- **`src/utils/artifacts.py`** — `save_arm_summary()` renders the fixed-width
+  comparison table (one row per arm, best `test_sharpe` first, plus the caveat that
+  ranking arms by test Sharpe is descriptive only).
+- **Moved with `git mv`:** `results/weekly_fg_roll5y_val6y_qrefit_rff_a0.1_d100_g0.01_vt0.2c1rf3_2023-2025`
+  → `results/_study/draws/qe/…`; the two macro draws (`…_qrefit_…` → `draws/qe/`,
+  `…_wkrefit_…` → `draws/w-fri/`, `_macro` suffix dropped); `results/plots/{test,val}`
+  → `results/_study/plots/qe/{test,val}`; `results/plots_macro/{test,val}` →
+  `results/_study_macro/plots/w-fri/{test,val}`. `results/` now holds only
+  `_study/` and `_study_macro/`.
+- **Docs** — `README.md` (usage + outputs tree), `agents/plots.md` (where figures live,
+  which run publishes), `agents/validation_and_ablation.md` (§4 tree and
+  `arm_comparison.txt` schema, new §5.1b), `agents/macro_study.md` (§4 `draw`, §5
+  tree, new §7.2).
+
+**Measured (2023-2025, one draw per arm):**
+
+| study | W-FRI | ME | QE |
+| --- | --- | --- | --- |
+| v2 (`rff` specs) | −0.3425 | **0.2040** | 0.1595 |
+| macro (`enet`) | 0.5286 | 0.8586 | **1.3856** |
+
+All six draws fail the success gate. In the macro study the QE arm — third on
+validation — beats the W-FRI winner by 31.6 pp total return, and its 1.386 Sharpe clears
+the bar while its −7.97% drawdown misses by 0.18 pp; in the v2 study the weekly arm has
+the best validation score and the worst draw. With one window and three draws this is a
+description of the arms, not a way to pick one.
+
+### Notes
+- `run_backtest.py` still writes an ad-hoc run folder under `results/<tag>/` and, for a
+  full 2023-2025 span, figures to the pipeline default `results/plots/`; only the two
+  study drivers were re-homed.
+
+### Follow-up (same day)
+`plots/` and `arm_comparison.txt` were lifted out of `draws/` to the study root, so the
+shape is `results/_study{,_macro}/{predictions,draws,plots}/ + ranking/winner/params +
+arm_comparison.txt`. Moved with `git mv` (the summary file was untracked, so it was
+moved with the filesystem); `arm_plots_root()` now returns `plots/<arm>` and
+`save_arm_summary()` writes to `STUDY_DIR`. Both `draw` runs were repeated so every
+figure exists at its final path.
+
+`arm_comparison.txt` also gained a second table: cumulative return of the drawn book
+versus EW and SPY B&H on **both** measured windows (`metrics.cumulative_return()` +
+`pipeline.cumulative_by_window()`, which read the run's own `val_*`/`test_*` series so
+the numbers agree with each draw's `comparison.csv`).

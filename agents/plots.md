@@ -2,25 +2,27 @@
 
 Report figures are generated **inside the experiment scripts** (`src/plots.py`,
 invoked by `pipeline.evaluate_all`), so there is no separate "plot image" script and
-**no flag to pass**. Under the joint-ranking scheme only the **single pre-registered
-test draw** produces report figures; the ranking step
-(`scripts/run_study.py rank`) writes one CSV and nothing else.
+**no flag to pass**. Under the joint-ranking scheme only **test draws** produce report
+figures — the single draw of the overall winner (`test`) and the per-refit-arm draws
+(`draw`); the ranking steps (`run_study*.py rank` / `cache`) write tables only.
 
 ## Where the figures live
 
 ```
-results/plots/
-  test/                         # promoted test draw (10 PNGs, no window prefix)
-    01_cumulative_returns.png   # ... 10_oos_r2_by_year.png
-  val/                          # the same 10 figures for the validation window the
-    01_cumulative_returns.png   # winner was chosen on (2017-2022)
+results/_study/                       # v2 study; results/_study_macro/ mirrors it
+  draws/<arm>/<run_tag>/               # arm = w-fri | me | qe: tables, series/, plots/
+  plots/<arm>/{test,val}/              # 10 PNGs per window, no window prefix
+    01_cumulative_returns.png          # ... 10_oos_r2_by_year.png
+  arm_comparison.txt                   # per-arm test results + which arm wins
 ```
 
-- The canonical report figures live **only** under `results/plots/<phase>/`, named
+- A draw publishes **only** to its own arm's root, `plots/<arm>/<phase>/`, named
   `01_<stem>.png` … `10_<stem>.png` (the folder name already identifies the phase,
   so the `test_` / `validation_` window prefix is stripped).
+- Arms never share a figure folder, so `draw` (all arms) and `test` (one winner) can
+  run in either order without overwriting another arm's figures.
 - The per-run `plots/` folder is **transient**: `evaluate_all` renders it, copies
-  each measured window into `results/plots/<phase>/`, then removes it — individual
+  each measured window into `plots/<arm>/<phase>/`, then removes it — individual
   run folders never keep stale plots.
 - Per-run **series** (the data behind the figures) still stay in each run folder
   under `series/` (book / weights / orders / benchmarks per window), so a report
@@ -30,11 +32,13 @@ results/plots/
 
 | run | test window | publishes |
 | --- | --- | --- |
-| the pre-registered test draw | `2023-01-01` … `2025-12-31` | `results/plots/test/` (the run's `test_*` figures) **and** `results/plots/val/` (its `validation_*` figures) |
-| anything else (study rows, ad-hoc windows) | — | nothing; tables + series only |
+| `run_study.py draw` (best candidate of each refit arm) | `2023-01-01` … `2025-12-31` | `plots/<arm>/test/` **and** `plots/<arm>/val/`, then `arm_comparison.txt` |
+| `run_study.py test` (overall ranking winner) | `2023-01-01` … `2025-12-31` | the same two folders for the winner's arm |
+| anything else (ranking rows, cache, ad-hoc windows) | — | nothing; tables + series only |
 
 The mapping lives in `pipeline.report_phases_for` (`REPORT_TEST_WINDOW` /
-`REPORT_PHASES` in `src/pipeline.py`).
+`REPORT_PHASES` in `src/pipeline.py`); the arm folder comes from the study CLI
+(`arm_plots_root(refit)`), which passes it as `plots_root`.
 
 ## Why two windows per run
 
@@ -46,12 +50,12 @@ The mapping lives in `pipeline.report_phases_for` (`REPORT_TEST_WINDOW` /
 | `test_*` | the configured book, overlay applied | the run's headline measurement |
 | `validation_*` | the same book on 2017-2022, overlay applied (`selection["overlay_books"]`) | the window that chose the model, reported with the book the joint ranking scored |
 
-Both figure sets are kept (`results/plots/test/`, `results/plots/val/`) so the
+Both figure sets are kept (`plots/<arm>/test/`, `plots/<arm>/val/`) so the
 validation result — the number that selected the model — is inspectable next to the
 headline. The overlay-free book (`apply_vol_target=False`) is still what the
 in-pipeline ranking scores; it is simply not plotted, because the joint ranking picks
-the winner on the overlaid book. The ranking step (`run_study.py rank`) plots nothing
-at all — it emits `results/_study/validation_ranking.csv`.
+the winner on the overlaid book. The ranking steps (`run_study.py rank` / `cache`) plot
+nothing at all — they emit `results/_study/validation_ranking.csv` (and the cache).
 
 ## The ten figures (per window)
 
@@ -91,13 +95,14 @@ These feed figures 04/06/07 and are also dumped to `series/`.
 Plots are produced automatically on every run — **no flag, no second script**:
 
 ```bash
-python scripts/run_study.py test     # the pre-registered draw -> results/plots/test/ + val/
+python scripts/run_study.py draw     # per-arm draws -> draws/<arm>/ + plots/<arm>/{test,val}/
+python scripts/run_study.py test     # the overall winner -> same folders for its arm
 # or the equivalent single draw through the backtest CLI:
 python scripts/run_backtest.py --test-start 2023-01-01 --test-end 2025-12-31 --window-val 6y ...
 ```
 
-Re-running the test draw overwrites `results/plots/test/` and `results/plots/val/`
-with identical figures (the run is deterministic: `utils.config.DEFAULT_SEED`; it
-takes ≈6 s because
+Re-running a draw overwrites that arm's `plots/<arm>/{test,val}/` with identical
+figures (the run is deterministic: `utils.config.DEFAULT_SEED`; it
+takes ≈6 s per arm because
 the models are cheap to refit). Any other span writes no figures, and the per-run
 `plots/` folder is always removed by the pipeline.

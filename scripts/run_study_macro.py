@@ -20,12 +20,16 @@ Split (calendar-anchored, fixed before the run)::
 
 The study keeps its own outputs (``results/_study_macro``) and its own prediction
 cache, so it can never read — or overwrite — the v2 study's 21-feature predictions or
-the pre-registered figures in ``results/plots/``.
+the v2 study's figures. Draws live under
+``results/_study_macro/draws/<arm>/<run_tag>/``, their figures under
+``results/_study_macro/plots/<arm>/{test,val}/``, and the arm comparison in
+``results/_study_macro/arm_comparison.txt``.
 
 Usage:
     python scripts/run_study_macro.py rank
     python scripts/run_study_macro.py cache                  # fit only missing predictions
     python scripts/run_study_macro.py cache --refits W-FRI   # one refit arm of the cache
+    python scripts/run_study_macro.py draw                   # one test draw per refit arm
     python scripts/run_study_macro.py rank --refits QE      # quarterly arm only (~8 min)
     python scripts/run_study_macro.py rank --jobs 4
     python scripts/run_study_macro.py test
@@ -52,11 +56,13 @@ from joblib import Parallel, delayed
 import study_worker
 from macro import MACRO_COLUMNS
 from macro_panel import build_panel
+from metrics import perf_stats
 from models import ModelSpec, specs_from_config
-from pipeline import run_pipeline, run_tag
+from pipeline import (CUMULATIVE_HEADER, cumulative_by_window,
+                      run_pipeline, run_tag)
 from run_backtest import FREQ_LA_PAIRS, FREQ_TO_BARS, REFIT_OPTIONS, REFIT_TO_BARS
 from study_worker import BOOKS, book_config, combo_slug
-from utils.artifacts import save_table
+from utils.artifacts import save_arm_summary, save_table
 from utils.config import DEFAULT_SEED, seed_everything
 from utils.paths import RESULTS_DIR
 
@@ -69,7 +75,6 @@ VAL_WINDOW_SLUG = "4y"              # window_val that reproduces 2019-2022 befor
 
 STUDY_DIR = RESULTS_DIR / "_study_macro"
 CACHE_ROOT = STUDY_DIR / "predictions"
-PLOTS_DIR = RESULTS_DIR / "plots_macro"
 BATCH = 5
 
 # Elastic net only: alpha x l1_ratio, with 0 (ridge) and 1 (lasso) as the family ends.
@@ -338,14 +343,119 @@ def run_rank(models: str | None, combos: str | None, refits: str | None, refresh
 
 
 # ---------------------------------------------------------------------------
+# draws — one test draw per refit arm, each with its own figures
+# ---------------------------------------------------------------------------
+
+def draws_dir() -> Path:
+    """Root of the study's run folders (``results/_study_macro/draws``)."""
+    return STUDY_DIR / "draws"
+
+
+def plots_dir() -> Path:
+    """Root of the study's published figures (``results/_study_macro/plots``)."""
+    return STUDY_DIR / "plots"
+
+
+def arm_slug(refit: str) -> str:
+    """Folder name of a refit arm, e.g. ``"W-FRI"`` -> ``"w-fri"``."""
+    return refit.lower()
+
+
+def arm_plots_root(refit: str) -> Path:
+    """Where an arm's figures are published: ``plots/<arm>/{test,val}/``."""
+    return plots_dir() / arm_slug(refit)
+
+
+def _arm_winner_rows(refits: str | None) -> list[pd.Series]:
+    """Best live ranking row of each refit arm (the ranking is Sharpe-sorted)."""
+    path = STUDY_DIR / "validation_ranking.csv"
+    if not path.exists():
+        raise SystemExit(f"missing {path}; run `python scripts/run_study_macro.py rank` "
+                         f"first")
+    ranking = pd.read_csv(path)
+    live = ranking[~ranking["degenerate"] & ranking["net_sharpe"].notna()]
+    keep = {part.strip() for part in refits.split(",")} if refits else None
+    if keep:
+        unknown = keep - set(live["refit"])
+        if unknown:
+            raise SystemExit(f"no live row for refit arm(s) {sorted(unknown)} in {path}")
+        live = live[live["refit"].isin(keep)]
+    if live.empty:
+        raise SystemExit(f"no non-degenerate candidate in {path}")
+    return [row for _, row in live.groupby("refit", sort=False).head(1).iterrows()]
+
+
+def _row_config(row):
+    """Config of a ranking row's candidate plus its book cell."""
+    return _config(int(row["look_ahead"]), row["rebalance"], row["refit"],
+                   row["model"],
+                   {"vol_window": int(row["vol_window"]),
+                    "vol_target": _optional(row["vol_target"]),
+                    "vol_rf": float(row["vol_rf"]),
+                    "vol_cap": float(row["vol_cap"]),
+                    "lev_fee": float(row["lev_fee"])})
+
+
+def run_draw(refits: str | None = None) -> Path:
+    """Measure each refit arm's best candidate once on 2023-2025 and compare them.
+
+    One run folder per arm under ``draws/<arm>/<run_tag>/`` and the arm's figures under
+    ``plots/<arm>/{test,val}/``; the comparison lands in ``arm_comparison.txt`` at the
+    study root.
+    """
+    rows = _arm_winner_rows(refits)
+    arms: list[dict] = []
+    cumulative: list[dict] = []
+    for row in rows:
+        refit = row["refit"]
+        arm = arm_slug(refit)
+        config = _row_config(row)
+        tag = run_tag(config, *TEST, window_val=VAL_WINDOW_SLUG)
+        out_dir = draws_dir() / arm / tag
+        print(f"\n[{arm}] {row['model']} / {row['target']} / {row['rebalance']} / "
+              f"{refit} / {row['book']} (validation net Sharpe {row['net_sharpe']:.4f})")
+        results = run_pipeline(PANEL, FEATURE_COLS, BENCHMARK_CLOSE, config,
+                               test_start=TEST[0], test_end=TEST[1],
+                               window_val=VAL_WINDOW_SLUG, out_dir=out_dir,
+                               plots_root=arm_plots_root(refit))
+        stats = perf_stats(results["portfolio"]["net_ret"], config.ppy)
+        verdict = results["verdict"]
+        arms.append({"arm": arm, "model": row["model"], "combo": row["combo"],
+                     "book": row["book"], "val_sharpe": float(row["net_sharpe"]),
+                     "test_sharpe": float(stats["sharpe"]),
+                     "max_drawdown": float(stats["max_drawdown"]),
+                     "total_return": float(stats["total_return"]),
+                     "ann_return": float(stats["ann_return"]),
+                     "ann_vol": float(stats["ann_vol"]),
+                     "gate": "pass" if verdict["success"] else "fail"})
+        cumulative.append({"arm": arm, "test_sharpe": float(stats["sharpe"]),
+                           **cumulative_by_window(results)})
+
+    cumulative.sort(key=lambda row: row.pop("test_sharpe"), reverse=True)
+    path = save_arm_summary(
+        arms, STUDY_DIR,
+        header=["arm", "model", "combo", "book", "val_sharpe", "test_sharpe",
+                "max_drawdown", "total_return", "ann_return", "ann_vol", "gate"],
+        best_key="test_sharpe",
+        title=f"Refit-arm test draws ({len(arms)} arms) — macro-interaction study",
+        note=("note: the arm is chosen on the validation window, so ranking the arms by\n"
+              "test-window net Sharpe here is descriptive, not a selection rule."),
+        tables=((f"cumulative return {VALIDATION[0]}..{VALIDATION[1]} (val) and "
+                 f"{TEST[0]}..{TEST[1]} (test); decimals, 0.4126 = +41.26%",
+                 CUMULATIVE_HEADER, cumulative),))
+    print(f"\nwritten: {_rel(path)}")
+    return path
+
+
+# ---------------------------------------------------------------------------
 # test — the single draw of the ranking winner
 # ---------------------------------------------------------------------------
 
 def run_test() -> None:
     """Measure the ranking winner once on 2023-2025 and publish its figures.
 
-    The figures go to ``results/plots_macro/{test,val}/`` — a separate root from the
-    v2 study's ``results/plots/``, so both figure sets coexist.
+    The figures go to ``plots/<arm>/{test,val}/`` inside this study's folder, so they
+    never mix with the v2 study's figures.
     """
     winner_path = STUDY_DIR / "validation_winner.json"
     if not winner_path.exists():
@@ -359,15 +469,17 @@ def run_test() -> None:
     book = {key: value for key, value in winner["book"].items() if key != "name"}
     config = _config(int(combo["look_ahead"]), combo["rebalance"], combo["refit"],
                      model["name"], book)
-    out_dir = RESULTS_DIR / (run_tag(config, *TEST, window_val=VAL_WINDOW_SLUG) + "_macro")
+    plots_root = arm_plots_root(combo["refit"])
+    out_dir = (draws_dir() / arm_slug(combo["refit"])
+               / run_tag(config, *TEST, window_val=VAL_WINDOW_SLUG))
     print(f"macro TEST draw: {model['name']} / {combo['target']} / "
           f"{combo['rebalance']} / {combo['refit']} with the {winner['book']['name']} "
           f"book on {TEST[0]}..{TEST[1]} (train 2011-2018, val 2019-2022)")
     run_pipeline(PANEL, FEATURE_COLS, BENCHMARK_CLOSE, config,
                  test_start=TEST[0], test_end=TEST[1], window_val=VAL_WINDOW_SLUG,
-                 out_dir=out_dir, publish_figures=True, plots_root=PLOTS_DIR)
+                 out_dir=out_dir, publish_figures=True, plots_root=plots_root)
     print(f"results: {_rel(out_dir)}")
-    print(f"figures: {_rel(PLOTS_DIR)}/{{test,val}}/  (v2 results/plots/ untouched)")
+    print(f"figures: {_rel(plots_root)}/{{test,val}}/  (v2 study figures untouched)")
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +491,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", nargs="?", default="rank",
-                        choices=("cache", "rank", "test"))
+                        choices=("cache", "draw", "rank", "test"))
     parser.add_argument("--models", default=None,
                         help="comma-separated spec names (subset runs)")
     parser.add_argument("--combos", default=None,
@@ -387,7 +499,8 @@ def main() -> None:
     parser.add_argument("--refits", default=None,
                         help="comma-separated refit cadences to keep, e.g. QE "
                              "(default: all of W-FRI,ME,QE; the weekly arm costs "
-                             "~85%% of the prediction compute)")
+                             "~85%% of the prediction compute). Also selects which "
+                             "arms `draw` measures")
     parser.add_argument("--study-dir", default=None,
                         help="study output root (default: results/_study_macro)")
     parser.add_argument("--jobs", type=int, default=0,
@@ -414,6 +527,8 @@ def main() -> None:
     if args.command == "cache":
         jobs = args.jobs if args.jobs > 0 else min(8, os.cpu_count() or 1)
         run_cache(args.models, args.combos, args.refits, args.refresh_cache, jobs)
+    elif args.command == "draw":
+        run_draw(args.refits)
     elif args.command == "rank":
         jobs = args.jobs if args.jobs > 0 else min(8, os.cpu_count() or 1)
         run_rank(args.models, args.combos, args.refits, args.refresh_cache, jobs)

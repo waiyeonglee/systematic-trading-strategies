@@ -1,0 +1,18 @@
+Refit-arm test draws (3 arms) — v2 study
+arm    model                combo                  book                 val_sharpe  test_sharpe  max_drawdown  total_return  ann_return  ann_vol  gate
+-----  -------------------  ---------------------  -------------------  ----------  -----------  ------------  ------------  ----------  -------  ----
+me     rff_a0.1_d100_g0.01  la4_4w_refitME         w08_vt10_rf3_cap1.0  1.1847      0.2040       -0.0987       0.0370        0.0133      0.0809   fail
+qe     rff_a0.1_d100_g0.01  la4_4w_refitQE         w12_vt20_rf3_cap1.0  1.3361      0.1595       -0.1042       0.0269        0.0097      0.0816   fail
+w-fri  rff_a0.1_d500_g0.01  la4_weekly_refitW-FRI  w04_vt10_rf3_cap1.0  1.0450      -0.3425      -0.1549       -0.0848       -0.0317     0.0838   fail
+
+best arm: me (highest test_sharpe = 0.2040)
+
+cumulative return 2017-01-01..2022-12-31 (val) and 2023-01-01..2025-12-31 (test); decimals, 0.4126 = +41.26%
+arm    val_strategy  val_ew  val_spy  test_strategy  test_ew  test_spy
+-----  ------------  ------  -------  -------------  -------  --------
+me     0.8575        0.6608  0.8965   0.0370         0.3842   0.7886  
+qe     1.2196        0.6608  0.8965   0.0269         0.3842   0.7886  
+w-fri  0.7137        0.6608  0.8965   -0.0848        0.3842   0.7886  
+
+note: the arm is chosen on the validation window, so ranking the arms by
+test-window net Sharpe here is descriptive, not a selection rule.

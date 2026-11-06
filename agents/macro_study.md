@@ -90,6 +90,10 @@ a `(look-ahead, refit)` group collapse to one task, so the 14 combos are 9 forec
 groups: `weekly_la{1,4,12}_refit{W-FRI,ME,QE}`. Run it after widening `--refits`, then
 re-rank; `--models` restricts the specs and `--refresh-cache` refits everything.
 
+`python scripts/run_study_macro.py draw [--refits ...]` draws the best validation
+candidate of every refit arm on 2023-2025 (one folder per arm, its own figures) and
+writes `draws/arm_comparison.txt`; `test` still draws only the overall winner.
+
 No RFF family: the point of this study is fast iteration over a linear model with
 explicit interactions. `l1_ratio=0` is ridge and `l1_ratio=1` is lasso, so the family
 ends are covered.
@@ -106,19 +110,20 @@ results/_study_macro/
   validation_ranking.csv
   validation_winner.json               # includes split, window_train, feature block
   run_parameters.json
-results/weekly_roll8y_val4y_qrefit_<spec>_..._2023-2025_macro/     # test draw tables + series
-results/plots_macro/test/01_cumulative_returns.png … 10_oos_r2_by_year.png
-results/plots_macro/val/01_cumulative_returns.png  … 10_oos_r2_by_year.png
+  draws/<arm>/<run_tag>/               # arm = w-fri | me | qe: tables + series/
+  plots/<arm>/{test,val}/              # 10 figures per window for that arm
+  arm_comparison.txt                   # per-arm test draws + the winning arm
 ```
 
 - The cache key records seed, target, refit, rolling window, embargo, evaluation
   window and panel signature — but **not the feature set**, so the study must never
   share `results/_study/predictions`; `run_study_macro.py` always writes to
   `results/_study_macro/predictions`.
-- The test draw publishes to `results/plots_macro/{test,val}/` via
-  `run_pipeline(..., plots_root=RESULTS_DIR / "plots_macro")`, a separate root from
-  the v2 study's `results/plots/{test,val}/`, so both figure sets coexist and the
-  pre-registered v2 figures are never overwritten.
+- `run_study_macro.py test` draws the overall winner and publishes to
+  `plots/<its arm>/{test,val}/` via
+  `run_pipeline(..., plots_root=arm_plots_root(refit))`; `draw` does the same for every
+  arm. The whole tree lives inside this study's folder, so the v2 study's draws and
+  figures are never touched.
 
 ## 6. Discipline notes before drawing the test window
 
@@ -194,7 +199,36 @@ the space changed the selection, not the measurements.
 +12.70%, ann vol 14.5%; by year −0.02 / 0.30 / 1.40. The success gate **fails** (bars:
 Sharpe 1.3145, maxDD −7.79%), and the book trails SPY (1.56 / 2.10 / 1.03 by year) and
 equal weight in every year. Draw folder
-`results/weekly_fg_roll8y_val4y_wkrefit_enet_a0.001_r1_vt0.1c1rf3_rweekly_2023-2025_macro`;
-figures in `results/plots_macro/{test,val}/` now describe this draw, and the QE winner's
-draw (`..._qrefit_enet_a0.01_r1_vt0.2c1rf3_rweekly_2023-2025_macro`) is kept beside it.
+`results/_study_macro/draws/w-fri/weekly_fg_roll8y_val4y_wkrefit_enet_a0.001_r1_vt0.1c1rf3_rweekly_2023-2025`;
+figures in `results/_study_macro/plots/w-fri/{test,val}/`.
 
+### 7.2 All three refit arms drawn (2026-11-06)
+
+`python scripts/run_study_macro.py draw` re-draws each arm's best candidate on the same
+2023-2025 window, so the arms are comparable rather than only the overall winner
+(`draws/…` + `plots/…` per arm, summary in `arm_comparison.txt`):
+
+| arm | model / combo | val Sharpe | test Sharpe | maxDD | total | gate |
+| --- | --- | --- | --- | --- | --- | --- |
+| QE | `enet_a0.01_r1` · abs12 · weekly | 1.1763 | **1.3856** | −7.97% | +41.26% | fail (DD) |
+| ME | `enet_a0.01_r0.5` · abs4 · weekly | 1.1555 | 0.8586 | −8.71% | +20.50% | fail |
+| W-FRI | `enet_a0.001_r1` · abs4 · weekly | 1.1945 | 0.5286 | −8.85% | +12.70% | fail |
+
+Cumulative return against the benchmarks (same file, second table):
+
+| arm | val strategy | val EW | val SPY | test strategy | test EW | test SPY |
+| --- | --- | --- | --- | --- | --- | --- |
+| QE | +87.1% | +52.3% | +64.4% | +41.3% | +38.4% | +78.9% |
+| ME | +62.8% | +52.3% | +64.4% | +20.5% | +38.4% | +78.9% |
+| W-FRI | +92.1% | +52.3% | +64.4% | +12.7% | +38.4% | +78.9% |
+
+On validation every arm beat both benchmarks; on the test window only the QE arm beat
+equal weight, and none came close to SPY (+78.9%). The validation spread (+62.8% to
++92.1%) did not carry over: the arm that led on validation (W-FRI) returned a third of
+the one that trailed it (QE).
+
+The quarterly arm beats the W-FRI winner it lost to on validation by a wide margin
+(+31.6 pp total return), clears the Sharpe bar (1.386 ≥ 1.3145) and misses the drawdown
+bar by 0.18 pp. That is the mirror image of the validation ranking, where W-FRI led
+1.1945 / 1.1763 / 1.1555 — with three draws and one window, neither ordering is
+evidence; the arm-to-arm spread here is larger than the edge that selected the winner.

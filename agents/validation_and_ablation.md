@@ -137,10 +137,30 @@ record, combo, book, metrics, cache path, seed, window, candidate counts).
 
 `results/_study/run_parameters.json` — the space definition actually searched.
 
+Test draws are kept inside the study folder, one directory per refit arm:
+
+```
+results/_study/
+  draws/<arm>/<run_tag>/           # arm = w-fri | me | qe: the usual tables + series/
+  plots/<arm>/{test,val}/          # 10 PNGs per window for that arm
+  arm_comparison.txt               # one row per arm + the arm with the highest
+                                   # test-window net Sharpe
+```
+
+`arm_comparison.txt` is written by `draw` (and only by `draw`): the main table has
+`arm`, `model`, `combo`, `book`, `val_sharpe` (from the ranking), `test_sharpe`,
+`max_drawdown`, `total_return`, `ann_return`, `ann_vol`, `gate`; a second table gives
+the **cumulative return** of the drawn book against both benchmarks on both windows
+(`arm`, `val_strategy`, `val_ew`, `val_spy`, `test_strategy`, `test_ew`, `test_spy`,
+read from the run's own `val_*`/`test_*` series so it matches `comparison.csv`). It
+states in the file itself that picking the arm by test Sharpe would be snooping — the
+arm is a validation-window choice.
+
 Command: `python scripts/run_study.py rank` (8 worker processes by default; only the
 book simulation runs — the model fits come from the cache). Measured: ≈3 min for the
-full 58,590-candidate space on 2026-11-04. `test` draws the winner once on the test
-window.
+full 58,590-candidate space on 2026-11-04. `test` draws the overall winner once on the
+test window; `draw` does the same for **each refit arm's** best candidate and writes
+`draws/arm_comparison.txt`.
 
 `python scripts/run_study.py cache` fits any **missing** prediction sets without
 simulating a book — the way to complete a partial cache (e.g. after adding a model spec
@@ -202,9 +222,27 @@ processes; 17–19 ms per book simulation, 40 distinct simulations per candidate
 maxDD −10.42% < −7.79% bar). Forecast OOS R² −0.0387 (rank-IC 0.0973); pooled OOS R²
 vs SPY −0.150, vs EW-16 −0.618. Null result: the validation edge does not transfer,
 nothing is promoted, `HEADLINE_*` stays `None`. Folder
-`results/weekly_fg_roll5y_val6y_qrefit_rff_a0.1_d100_g0.01_vt0.2c1rf3_2023-2025`;
-figures in `results/plots/test/` (2023-2025) and `results/plots/val/` (2017-2022,
-the selection window, reported with the winning book).
+`results/_study/draws/qe/weekly_fg_roll5y_val6y_qrefit_rff_a0.1_d100_g0.01_vt0.2c1rf3_2023-2025`;
+figures in `results/_study/plots/qe/test/` (2023-2025) and
+`results/_study/plots/qe/val/` (2017-2022, the selection window, reported with the
+winning book).
+
+### 5.1b Refit-arm comparison, one draw per arm (2026-11-06)
+
+`python scripts/run_study.py draw` draws the best validation candidate of each refit
+arm on the same 2023-2025 window (folders under `results/_study/draws/<arm>/`, figures
+under `results/_study/plots/<arm>/{test,val}/`, summary in
+`results/_study/arm_comparison.txt`):
+
+| arm | model / combo | val Sharpe | test Sharpe | maxDD | total | gate |
+| --- | --- | --- | --- | --- | --- | --- |
+| ME | `rff_a0.1_d100_g0.01` · abs4 · 4w | 1.1847 | **0.2040** | −9.87% | +3.70% | fail |
+| QE | `rff_a0.1_d100_g0.01` · abs4 · 4w | 1.3361 | 0.1595 | −10.42% | +2.69% | fail |
+| W-FRI | `rff_a0.1_d500_g0.01` · abs4 · weekly | 1.0450 | −0.3425 | −15.49% | −8.48% | fail |
+
+All three arms fail the gate and none transfers a validation edge to 2023-2025; the
+weekly refit arm is the worst. Selecting the arm by test Sharpe would be snooping —
+the arm is a validation-window choice, so this table is descriptive only.
 
 **Superseded record (kept for continuity).** The 11-row one-knob-at-a-time book space
 (2026-11-03) picked the same model and combo with `volwin_12w` (10% target) at 1.3239

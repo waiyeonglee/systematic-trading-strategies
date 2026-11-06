@@ -36,6 +36,12 @@ def max_drawdown(returns: pd.Series) -> float:
     return float((wealth / wealth.cummax() - 1).min())
 
 
+def cumulative_return(returns: pd.Series) -> float:
+    """Compounded return over the whole series (``0.4126`` = +41.26%)."""
+    clean = returns.dropna()
+    return float((1 + clean).prod() - 1) if not clean.empty else float("nan")
+
+
 def sharpe(returns: pd.Series, ppy: int = 252) -> float:
     """Annualised Sharpe ratio with a zero risk-free rate; NaN when volatility is zero."""
     returns = returns.dropna()

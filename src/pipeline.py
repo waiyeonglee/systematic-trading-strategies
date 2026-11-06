@@ -16,10 +16,10 @@ import numpy as np
 import pandas as pd
 
 from labels import TARGET_COL
-from metrics import (comparison_table, equal_weight_universe, forecast_metrics,
-                     max_drawdown, oos_r2_benchmarks, oos_r2_by_period,
-                     perf_stats, period_stats, sharpe, spy_buy_and_hold,
-                     strategy_report)
+from metrics import (comparison_table, cumulative_return, equal_weight_universe,
+                     forecast_metrics, max_drawdown, oos_r2_benchmarks,
+                     oos_r2_by_period, perf_stats, period_stats, sharpe,
+                     spy_buy_and_hold, strategy_report)
 from models import ModelSpec, walk_forward_predict
 from portfolio import ForecastVolParams, TrendParams, build_all_positions
 from prediction_cache import warmup_frame
@@ -309,6 +309,27 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
         evaluate_all(out_dir, results, feature_cols,
                      publish_figures=publish_figures, plots_root=plots_root)
     return results
+
+
+# Column order of the per-window cumulative-return block in an arm comparison.
+CUMULATIVE_HEADER = ("arm", "val_strategy", "val_ew", "val_spy",
+                     "test_strategy", "test_ew", "test_spy")
+
+
+def cumulative_by_window(results: dict) -> dict:
+    """Cumulative returns of the book and both benchmarks on both measured windows.
+
+    Reads the dict :func:`run_pipeline` returns, so the numbers match the run's own
+    ``comparison.csv``; the ``arm`` column is left for the caller.
+    """
+    return {
+        "val_strategy": cumulative_return(results["val_portfolio"]["net_ret"]),
+        "val_ew": cumulative_return(results["val_benchmarks"]["Equal-weight"]),
+        "val_spy": cumulative_return(results["val_benchmarks"]["SPY B&H"]),
+        "test_strategy": cumulative_return(results["portfolio"]["net_ret"]),
+        "test_ew": cumulative_return(results["benchmarks"]["Equal-weight"]),
+        "test_spy": cumulative_return(results["benchmarks"]["SPY B&H"]),
+    }
 
 
 # The final pre-registered test draw publishes canonical report figures for **both**
