@@ -7,12 +7,17 @@ per-task panel pickle that dominated dispatch time in the first implementation.
 Each task scores a small batch of candidates through every book cell, so the fixed
 cost of a round trip is amortised over ~5 candidates (225 book cells). Cells that
 differ only in an inert knob are simulated once — see :func:`effective_key`.
+
+:func:`cache_candidate` is the same task shape without the book stage: it only fits
+the walk-forward prediction sets, which is what the studies' ``cache`` command runs
+before a ranking over a space whose cache is incomplete.
 """
 
 from __future__ import annotations
 
 import math
 import sys
+import time
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +30,7 @@ import pandas as pd
 from metrics import perf_stats, sharpe
 from models import ModelSpec
 from portfolio import build_positions, forecast_vol_frame
-from prediction_cache import (DegenerateCandidate, cached_predictions,
+from prediction_cache import (DegenerateCandidate, cache_path, cached_predictions,
                               cached_warmup)
 from run_backtest import default_config
 
@@ -97,6 +102,23 @@ def init(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: pd.Serie
 
 def combo_slug(rebalance: str, horizon: int, refit: str) -> str:
     return f"la{horizon}_{rebalance}_refit{refit}"
+
+
+def forecast_groups(pairs: list[tuple[str, int, str]]) -> list[tuple[str, int, str]]:
+    """One representative combo per ``(horizon, refit)`` group.
+
+    The walk-forward forecasts depend on the model spec, the target and the refit
+    cadence only, so combos that share those (e.g. ``weekly`` and ``4w`` at the same
+    look-ahead and refit) share one cached prediction set.
+    """
+    seen: set[tuple[int, str]] = set()
+    groups: list[tuple[str, int, str]] = []
+    for rebalance, horizon, refit in pairs:
+        if (horizon, refit) in seen:
+            continue
+        seen.add((horizon, refit))
+        groups.append((rebalance, horizon, refit))
+    return groups
 
 
 def score_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
@@ -180,6 +202,57 @@ def _degenerate_row(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
                total_return=math.nan, ann_return=math.nan, ann_vol=math.nan,
                hit_rate=math.nan, avg_turnover=math.nan)
     return row
+
+
+def cache_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
+                    refresh: bool = False) -> dict:
+    """Fit the prediction sets of one candidate, without simulating any book cell.
+
+    The forecasts depend on the model spec, the target and the refit cadence only — not
+    on the rebalance cadence — so ``rebalance`` is carried for labelling and provenance
+    completeness while the caller should dedupe on ``(horizon, refit)``.
+
+    Returns:
+        ``{"candidate", "spec", "status", "seconds"}`` where status is ``"cached"``
+        (payload already valid), ``"stored"`` (written now) or ``"degenerate"``
+        (constant predictions; only a marker is written).
+    """
+    panel = _STATE["panel"]
+    feature_cols = _STATE["feature_cols"]
+    cache_root = _STATE["cache_root"]
+    validation = _STATE["validation"]
+    window_train = _STATE["window_train"]
+    grid_entries = _STATE["grid_entries"]
+
+    pred_config = book_config(horizon, rebalance=rebalance, refit=refit,
+                              model=spec.name, book=dict(vol_target=False, vol_rf=0.0),
+                              window_train=window_train, grid_entries=grid_entries)
+    path = cache_path(pred_config, spec.name, *validation, cache_root=cache_root)
+    before = path.stat().st_mtime if path.exists() else None
+    started = time.perf_counter()
+
+    try:
+        cached_predictions(panel, feature_cols, pred_config, spec, *validation,
+                           cache_root=cache_root, refresh=refresh, verbose=False)
+    except DegenerateCandidate:
+        status = "degenerate"
+    else:
+        cached_warmup(panel, feature_cols, pred_config, spec, validation[0],
+                      bars=VOL_WARMUP_BARS, cache_root=cache_root, refresh=refresh,
+                      verbose=False)
+        # the write happens after the fit, so an unchanged mtime means a cache hit
+        after = path.stat().st_mtime
+        status = "cached" if before == after and not refresh else "stored"
+
+    return {"candidate": combo_slug(rebalance, horizon, refit), "spec": spec.name,
+            "status": status, "seconds": round(time.perf_counter() - started, 2)}
+
+
+def cache_batch(tasks: list[tuple[ModelSpec, str, int, str]],
+                refresh: bool = False) -> list[dict]:
+    """Fill the prediction cache for a batch of (spec, rebalance, horizon, refit)."""
+    return [cache_candidate(spec, rebalance, horizon, refit, refresh)
+            for spec, rebalance, horizon, refit in tasks]
 
 
 def score_batch(tasks: list[tuple[ModelSpec, str, int, str]],

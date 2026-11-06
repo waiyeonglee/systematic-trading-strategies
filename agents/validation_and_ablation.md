@@ -142,6 +142,14 @@ book simulation runs — the model fits come from the cache). Measured: ≈3 min
 full 58,590-candidate space on 2026-11-04. `test` draws the winner once on the test
 window.
 
+`python scripts/run_study.py cache` fits any **missing** prediction sets without
+simulating a book — the way to complete a partial cache (e.g. after adding a model spec
+or a combo) before re-ranking. It walks the same space as `rank`, collapses combos that
+share a `(look-ahead, refit)` group to one task (the forecasts do not depend on the
+rebalance cadence), reuses every set whose provenance matches, and prints one line per
+newly stored or degenerate set plus a `stored / degenerate / cached` summary.
+`--models`, `--combos` and `--refresh-cache` behave as in `rank`.
+
 ## 5. Measured record
 
 Filled after each executed ranking. The current record is §5.1.

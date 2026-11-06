@@ -1,6 +1,5 @@
 {
   "scheme": "macro-interaction joint model x strategy ranking",
-  "criterion": "raw",
   "split": {
     "train": [
       "2011-01-01",
@@ -50,6 +49,14 @@
     "enet_a0.1_r1"
   ],
   "combos": [
+    "la1_weekly_refitW-FRI",
+    "la4_weekly_refitW-FRI",
+    "la12_weekly_refitW-FRI",
+    "la1_weekly_refitME",
+    "la4_weekly_refitME",
+    "la12_weekly_refitME",
+    "la4_4w_refitME",
+    "la12_4w_refitME",
     "la1_weekly_refitQE",
     "la4_weekly_refitQE",
     "la12_weekly_refitQE",
@@ -58,7 +65,9 @@
     "la12_12w_refitQE"
   ],
   "refits": [
-    "QE"
+    "ME",
+    "QE",
+    "W-FRI"
   ],
   "books": [
     {
@@ -557,6 +566,6 @@
       }
     }
   ],
-  "candidates": 5400,
+  "candidates": 12600,
   "cache": "results/_study_macro/predictions"
 }

@@ -1,6 +1,5 @@
 {
   "phase": "macro joint-ranking",
-  "criterion": "raw",
   "split": {
     "train": [
       "2011-01-01",
@@ -34,51 +33,43 @@
   },
   "candidates": {
     "specs": 20,
-    "combos": 6,
+    "combos": 14,
     "books": 45,
-    "scored": 5400,
-    "regime_passed": 824
+    "scored": 12600
   },
   "model": {
-    "name": "enet_a0.01_r1",
+    "name": "enet_a0.001_r1",
     "family": "enet",
-    "alpha": 0.01,
+    "alpha": 0.001,
     "l1_ratio": 1.0,
     "rff_dim": null,
     "gamma": null
   },
   "combo": {
-    "target": "absolute12",
-    "look_ahead": 12,
+    "target": "absolute4",
+    "look_ahead": 4,
     "rebalance": "weekly",
-    "refit": "QE"
+    "refit": "W-FRI"
   },
   "book": {
-    "name": "w48_vt20_rf3_cap1.0",
-    "vol_window": 48,
-    "vol_target": 0.2,
+    "name": "w04_vt10_rf3_cap1.0",
+    "vol_window": 4,
+    "vol_target": 0.1,
     "vol_rf": 0.03,
     "vol_cap": 1.0,
     "lev_fee": 0.0
   },
   "metrics": {
-    "net_sharpe": 1.176311260749404,
-    "gross_sharpe": 1.1791740335578955,
-    "max_drawdown": -0.14040640300055673,
-    "total_return": 0.8707817819728985,
-    "ann_return": 0.168639056304408,
-    "ann_vol": 0.1410569480757587,
-    "hit_rate": 0.5980861244019139,
-    "avg_turnover": 0.025090850634346868
+    "net_sharpe": 1.1944902898371021,
+    "gross_sharpe": 1.2075402092720622,
+    "max_drawdown": -0.1777497248691713,
+    "total_return": 0.9207562154251743,
+    "ann_return": 0.1763294777074078,
+    "ann_vol": 0.14492023379173027,
+    "hit_rate": 0.5789473684210527,
+    "avg_turnover": 0.19312616047483264
   },
-  "regime": {
-    "pos_years": 4,
-    "n_years": 4,
-    "yr_sharpe_min": 0.25627487237130026,
-    "up_capture": 0.9903351319446588,
-    "down_capture": 0.8238005045709627
-  },
-  "cache": "results/_study_macro/predictions/2019-01-01_2022-12-31/weekly_la12_refitQE/enet_a0.01_r1.npz",
+  "cache": "results/_study_macro/predictions/2019-01-01_2022-12-31/weekly_la4_refitW-FRI/enet_a0.001_r1.npz",
   "window_train_bars": 416,
   "features_used": 114,
   "ranking": "results/_study_macro/validation_ranking.csv",

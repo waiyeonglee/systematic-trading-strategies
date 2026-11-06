@@ -35,6 +35,7 @@ Optional: ``test`` runs the single pre-registered draw of the winner on 2023-202
 Usage:
     python scripts/run_study.py rank                 # joint ranking (default)
     python scripts/run_study.py rank --jobs 4
+    python scripts/run_study.py cache                # fit only missing predictions
     python scripts/run_study.py test                 # single draw of the winner
     python scripts/run_study.py rank --models ridge_a10 --combos la4_4w_refitQE
 """
@@ -46,6 +47,7 @@ import json
 import math
 import os
 import sys
+import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -141,6 +143,53 @@ def _specs(text: str | None) -> list[ModelSpec]:
     if unknown:
         raise SystemExit(f"unknown model spec(s) {sorted(unknown)}")
     return [spec for spec in specs if spec.name in wanted]
+
+
+# ---------------------------------------------------------------------------
+# cache — fill the walk-forward prediction cache, no book simulation
+# ---------------------------------------------------------------------------
+
+def run_cache(models: str | None, combos: str | None, refresh: bool, jobs: int) -> None:
+    """Fit every missing walk-forward prediction set of the requested space.
+
+    Only the model fits run — no book is simulated and no ranking is written — so this
+    is the cheap way to complete a partial cache before ``rank``. Sets already stored
+    under matching provenance are reused.
+    """
+    specs = _specs(models)
+    groups = study_worker.forecast_groups(_parse_combos(combos))
+    total = len(specs) * len(groups)
+    print(f"prediction cache: {len(specs)} specs x {len(groups)} forecast groups = "
+          f"{total} prediction sets on {VALIDATION[0]}..{VALIDATION[1]} "
+          f"(seed {SEED}, jobs {jobs})", flush=True)
+
+    tasks = [(spec, rebalance, horizon, refit)
+             for rebalance, horizon, refit in groups for spec in specs]
+    batches = [tasks[i:i + BATCH] for i in range(0, len(tasks), BATCH)]
+    progress_every = max(1, len(batches) // 10)
+
+    study_worker.init(PANEL, FEATURE_COLS, BENCHMARK_CLOSE, CACHE_ROOT)
+
+    counts = {"cached": 0, "stored": 0, "degenerate": 0}
+    started = time.perf_counter()
+    for number, produced in enumerate(
+            Parallel(n_jobs=jobs, return_as="generator_unordered",
+                     initializer=study_worker.init,
+                     initargs=(PANEL, FEATURE_COLS, BENCHMARK_CLOSE, CACHE_ROOT))(
+                delayed(study_worker.cache_batch)(batch, refresh) for batch in batches),
+            start=1):
+        for record in produced:
+            counts[record["status"]] += 1
+            if record["status"] != "cached":
+                print(f"  {record['candidate']}/{record['spec']}: "
+                      f"{record['status']} ({record['seconds']:.1f}s)", flush=True)
+        if number % progress_every == 0 or number == len(batches):
+            done = min(number * BATCH, len(tasks))
+            print(f"  {done}/{total} prediction sets checked", flush=True)
+
+    print(f"cache: {counts['stored']} stored, {counts['degenerate']} degenerate, "
+          f"{counts['cached']} already cached "
+          f"({time.perf_counter() - started:.0f}s) -> {_rel(CACHE_ROOT)}")
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +334,8 @@ def main() -> None:
     global PANEL, FEATURE_COLS, BENCHMARK_CLOSE, STUDY_DIR, CACHE_ROOT
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", nargs="?", default="rank", choices=("rank", "test"))
+    parser.add_argument("command", nargs="?", default="rank",
+                        choices=("cache", "rank", "test"))
     parser.add_argument("--models", default=None,
                         help="comma-separated spec names (subset runs)")
     parser.add_argument("--combos", default=None,
@@ -310,7 +360,10 @@ def main() -> None:
           f"{len(FEATURE_COLS)} features, seed {SEED}")
     print(f"study: {_rel(STUDY_DIR) if str(STUDY_DIR).startswith(str(PROJECT_ROOT)) else STUDY_DIR}")
 
-    if args.command == "rank":
+    if args.command == "cache":
+        jobs = args.jobs if args.jobs > 0 else min(8, os.cpu_count() or 1)
+        run_cache(args.models, args.combos, args.refresh_cache, jobs)
+    elif args.command == "rank":
         jobs = args.jobs if args.jobs > 0 else min(8, os.cpu_count() or 1)
         run_rank(args.models, args.combos, args.refresh_cache, jobs)
     else:

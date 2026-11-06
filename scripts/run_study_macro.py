@@ -24,6 +24,8 @@ the pre-registered figures in ``results/plots/``.
 
 Usage:
     python scripts/run_study_macro.py rank
+    python scripts/run_study_macro.py cache                  # fit only missing predictions
+    python scripts/run_study_macro.py cache --refits W-FRI   # one refit arm of the cache
     python scripts/run_study_macro.py rank --refits QE      # quarterly arm only (~8 min)
     python scripts/run_study_macro.py rank --jobs 4
     python scripts/run_study_macro.py test
@@ -36,6 +38,7 @@ import json
 import math
 import os
 import sys
+import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -157,6 +160,57 @@ def _config(horizon: int, rebalance: str, refit: str, model: str, book: dict):
     return book_config(horizon, rebalance=rebalance, refit=refit, model=model,
                        book=book, window_train=WINDOW_TRAIN,
                        grid_entries=GRID_ENTRIES)
+
+
+# ---------------------------------------------------------------------------
+# cache — fill the walk-forward prediction cache, no book simulation
+# ---------------------------------------------------------------------------
+
+def run_cache(models: str | None, combos: str | None, refits: str | None,
+              refresh: bool, jobs: int) -> None:
+    """Fit every missing walk-forward prediction set of the requested space.
+
+    The 14 combos map onto 9 ``(look-ahead, refit)`` forecast groups, so only those 9
+    groups are filled: combos that differ only in the rebalance cadence share the same
+    cached predictions. Nothing is ranked here; run ``rank`` afterwards.
+    """
+    specs = _specs(models)
+    groups = study_worker.forecast_groups(_parse_combos(combos, _combos(refits)))
+    total = len(specs) * len(groups)
+    print(f"macro prediction cache: {len(specs)} specs x {len(groups)} forecast groups "
+          f"= {total} prediction sets on {VALIDATION[0]}..{VALIDATION[1]} "
+          f"(window {WINDOW_TRAIN}, seed {SEED}, {len(FEATURE_COLS)} features, "
+          f"jobs {jobs})", flush=True)
+
+    tasks = [(spec, rebalance, horizon, refit)
+             for rebalance, horizon, refit in groups for spec in specs]
+    batches = [tasks[i:i + BATCH] for i in range(0, len(tasks), BATCH)]
+    progress_every = max(1, len(batches) // 10)
+
+    study_worker.init(PANEL, FEATURE_COLS, BENCHMARK_CLOSE, CACHE_ROOT,
+                      VALIDATION, WINDOW_TRAIN, GRID_ENTRIES)
+
+    counts = {"cached": 0, "stored": 0, "degenerate": 0}
+    started = time.perf_counter()
+    for number, produced in enumerate(
+            Parallel(n_jobs=jobs, return_as="generator_unordered",
+                     initializer=study_worker.init,
+                     initargs=(PANEL, FEATURE_COLS, BENCHMARK_CLOSE, CACHE_ROOT,
+                               VALIDATION, WINDOW_TRAIN, GRID_ENTRIES))(
+                delayed(study_worker.cache_batch)(batch, refresh) for batch in batches),
+            start=1):
+        for record in produced:
+            counts[record["status"]] += 1
+            if record["status"] != "cached":
+                print(f"  {record['candidate']}/{record['spec']}: "
+                      f"{record['status']} ({record['seconds']:.1f}s)", flush=True)
+        if number % progress_every == 0 or number == len(batches):
+            done = min(number * BATCH, len(tasks))
+            print(f"  {done}/{total} prediction sets checked", flush=True)
+
+    print(f"cache: {counts['stored']} stored, {counts['degenerate']} degenerate, "
+          f"{counts['cached']} already cached "
+          f"({time.perf_counter() - started:.0f}s) -> {_rel(CACHE_ROOT)}")
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +378,8 @@ def main() -> None:
     global PANEL, FEATURE_COLS, BENCHMARK_CLOSE, STUDY_DIR, CACHE_ROOT
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", nargs="?", default="rank", choices=("rank", "test"))
+    parser.add_argument("command", nargs="?", default="rank",
+                        choices=("cache", "rank", "test"))
     parser.add_argument("--models", default=None,
                         help="comma-separated spec names (subset runs)")
     parser.add_argument("--combos", default=None,
@@ -356,7 +411,10 @@ def main() -> None:
           f"({len(GRID_ENTRIES)}-family grid, no rff)")
     print(f"study: {_rel(STUDY_DIR)}")
 
-    if args.command == "rank":
+    if args.command == "cache":
+        jobs = args.jobs if args.jobs > 0 else min(8, os.cpu_count() or 1)
+        run_cache(args.models, args.combos, args.refits, args.refresh_cache, jobs)
+    elif args.command == "rank":
         jobs = args.jobs if args.jobs > 0 else min(8, os.cpu_count() or 1)
         run_rank(args.models, args.combos, args.refits, args.refresh_cache, jobs)
     else:

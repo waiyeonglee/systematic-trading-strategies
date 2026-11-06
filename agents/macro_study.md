@@ -84,6 +84,12 @@ because QE is the cadence that won every v2 draw and this study is meant to iter
 fast. Adding it back later is a `--refits W-FRI,ME,QE` re-rank — the completed
 prediction sets stay cached.
 
+`python scripts/run_study_macro.py cache [--refits ...]` fits the **missing** prediction
+sets of that space and nothing else (no book simulation, no ranking). Combos that share
+a `(look-ahead, refit)` group collapse to one task, so the 14 combos are 9 forecast
+groups: `weekly_la{1,4,12}_refit{W-FRI,ME,QE}`. Run it after widening `--refits`, then
+re-rank; `--models` restricts the specs and `--refresh-cache` refits everything.
+
 No RFF family: the point of this study is fast iteration over a linear model with
 explicit interactions. `l1_ratio=0` is ridge and `l1_ratio=1` is lasso, so the family
 ends are covered.
@@ -161,4 +167,34 @@ prediction level, not from better ordering. **Null result**: on 2019-2022 the fi
 macro state variables do not add measurable forecast information beyond the price-based
 features, which is consistent with the earlier decomposition showing the v2 failure
 lives in the level/common component rather than in the cross-section.
+
+### 7.1 Second cycle — full refit space (2026-11-06)
+
+The first cycle ranked the QE arm only. The cache was then completed for the other two
+arms with `python scripts/run_study_macro.py cache` (all 9 forecast groups; the W-FRI
+arm was the gap) and the study re-ranked over all 14 combos:
+
+**Ranking:** 12,600 candidates (20 specs x 14 combos x 45 books), 3,195 degenerate
+(25%), 9,405 live. Best net Sharpe per refit arm: W-FRI 1.1945, QE 1.1763, ME 1.1555;
+median live Sharpe 0.355 / 0.423 / 0.439, i.e. the weekly-refit arm wins at the top and
+loses in the middle of the distribution.
+
+| row | model | target | cadence | book | net Sharpe | maxDD |
+| --- | --- | --- | --- | --- | --- | --- |
+| winner | `enet_a0.001_r1` (lasso) | absolute4 | weekly / W-FRI | `w04_vt10_rf3_cap1.0` | **1.1945** | −17.77% |
+| QE best | `enet_a0.01_r1` | absolute12 | weekly / QE | `w48_vt20_rf3_cap1.0` | 1.1763 | −14.04% |
+| ME best | `enet_a0.01_r0.5` | absolute4 | weekly / ME | `w04_vt10_rf3_cap1.0` | 1.1555 | −13.84% |
+
+The new winner has 17.8% max drawdown versus 14.0% for the QE arm, and it needs 208
+refits per prediction set rather than 16 — a 0.018 Sharpe edge does not obviously pay
+for that. Both arms reproduce the first cycle exactly on their own cells, so widening
+the space changed the selection, not the measurements.
+
+**Test draw (2023-2025) of the new winner:** net Sharpe **0.5286**, maxDD −8.85%, total
++12.70%, ann vol 14.5%; by year −0.02 / 0.30 / 1.40. The success gate **fails** (bars:
+Sharpe 1.3145, maxDD −7.79%), and the book trails SPY (1.56 / 2.10 / 1.03 by year) and
+equal weight in every year. Draw folder
+`results/weekly_fg_roll8y_val4y_wkrefit_enet_a0.001_r1_vt0.1c1rf3_rweekly_2023-2025_macro`;
+figures in `results/plots_macro/{test,val}/` now describe this draw, and the QE winner's
+draw (`..._qrefit_enet_a0.01_r1_vt0.2c1rf3_rweekly_2023-2025_macro`) is kept beside it.
 

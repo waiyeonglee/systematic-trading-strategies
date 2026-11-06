@@ -99,6 +99,9 @@ python scripts/run_study.py rank                # ONE joint ranking over the com
                                                 # -> results/_study/validation_ranking.csv
                                                 # (~3-4 min on 8 workers; the model fits
                                                 # come from the prediction cache)
+python scripts/run_study.py cache               # fit only the missing predictions of
+                                                # that space (no book simulation), then
+                                                # re-run rank
 python scripts/run_study.py test                # single pre-registered draw (2023-2025)
                                                 # of the ranking winner
 python scripts/run_study.py rank --jobs 4       # worker processes (0 = min(8, cpu))
@@ -110,6 +113,8 @@ python scripts/run_study_macro.py rank          # macro-interaction study: 20 en
                                                 # 6 QE combos x 45 books = 5,400 candidates
                                                 # on 2019-2022 (train 2011-2018, 8y rolling)
                                                 # -> results/_study_macro/validation_ranking.csv
+python scripts/run_study_macro.py cache         # fit only the missing prediction sets
+                                                # (9 (look-ahead, refit) forecast groups)
 python scripts/run_study_macro.py rank --refits W-FRI,ME,QE   # add the costlier refit arms
 python scripts/run_study_macro.py test          # single draw of that winner on 2023-2025;
                                                 # figures -> results/plots_macro/{test,val}/

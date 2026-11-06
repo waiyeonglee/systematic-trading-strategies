@@ -1680,3 +1680,52 @@ its outputs are gone; the single max-Sharpe ranking is the only selection rule a
 - The deleted numbers are preserved in Step 19 above; nothing else referenced them.
 
 
+
+
+## Step 21 — `cache` command, full refit space re-ranked, new test draw (2026-11-06)
+
+The macro study had only ever been ranked on the QE arm (5,400 candidates). The other
+two arms' prediction cache was incomplete (W-FRI: 39 of 60 sets missing, plus warmups),
+so the study CLIs gained a **`cache` command** that fills a partial cache without
+running any book simulation:
+
+- **`scripts/study_worker.py`** — `cache_candidate()` / `cache_batch()` fit one
+  candidate's predictions and 48-bar warmup through the same `init()` state as
+  `score_candidate()`, and return `{"candidate","spec","status","seconds"}` with status
+  `cached` / `stored` / `degenerate`. `forecast_groups()` collapses combos onto the
+  `(look-ahead, refit)` forecast groups they share, so 14 combos cost 9 groups of fits.
+- **`scripts/run_study.py`**, **`scripts/run_study_macro.py`** — third command `cache`
+  (same `--models` / `--combos` / `--refits` / `--refresh-cache` / `--jobs` filters),
+  one line per newly stored or degenerate set plus a `stored / degenerate / cached`
+  summary; nothing is ranked or written.
+- **`src/prediction_cache.py`** — the degenerate-marker helper is public
+  (`marker_path(path)`); the unused `_marker_path()` wrapper is gone.
+- **Docs** — `README.md` usage, `agents/validation_and_ablation.md` §4,
+  `agents/macro_study.md` §4 (command) and §7.1 (measured record).
+
+**Cache:** `run_study_macro.py cache` → 180 prediction sets (20 specs x 9 groups):
+131 cached, 49 degenerate, 0 stored on the re-check; the W-FRI arm's 39 sets and their
+warmups were fitted before that. Provenance is uniform within every group (only
+`rebalance`, which is not a cache key, varies).
+
+**Ranking:** `run_study_macro.py rank` (14 combos) → **12,600 candidates, 3,195
+degenerate, 9,405 live**. The QE and ME arms reproduce their earlier numbers exactly
+(1.1763 and 1.1555), so widening the space changed the selection only.
+
+| arm | best | net Sharpe | maxDD |
+| --- | --- | --- | --- |
+| W-FRI | `enet_a0.001_r1` · abs4 · weekly · `w04_vt10_rf3_cap1.0` | **1.1945** | −17.77% |
+| QE | `enet_a0.01_r1` · abs12 · weekly · `w48_vt20_rf3_cap1.0` | 1.1763 | −14.04% |
+| ME | `enet_a0.01_r0.5` · abs4 · weekly · `w04_vt10_rf3_cap1.0` | 1.1555 | −13.84% |
+
+Median live Sharpe is 0.355 (W-FRI) vs 0.423 (QE) / 0.439 (ME): the weekly arm wins the
+top row and loses the middle, and its 0.018 Sharpe edge costs 208 refits per prediction
+set against 16.
+
+**Test draw (2023-2025), new winner:** net Sharpe **0.5286**, maxDD −8.85%, total
++12.70%, ann vol 14.5% (by year: −0.02 / 0.30 / 1.40). Gate **fails** (bars: Sharpe
+1.3145, maxDD −7.79%); in every year the book also trails SPY (1.56 / 2.10 / 1.03) and
+equal weight. Draw folder
+`results/weekly_fg_roll8y_val4y_wkrefit_enet_a0.001_r1_vt0.1c1rf3_rweekly_2023-2025_macro`,
+figures refreshed in `results/plots_macro/{test,val}/`. The previous QE winner's draw
+(`..._qrefit_enet_a0.01_r1_vt0.2c1rf3_rweekly_2023-2025_macro`) is kept beside it.

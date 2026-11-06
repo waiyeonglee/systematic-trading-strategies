@@ -89,13 +89,10 @@ def cache_path(config, spec_name: str, start: str, end: str, *,
     return root / window / _group_dir(config, cache_root).name / f"{name}.npz"
 
 
-def _marker_path(config, spec_name: str, start: str, end: str, *,
-                 bars: int | None, cache_root: Path | None) -> Path:
-    """Marker file recording that this prediction set is degenerate."""
-    root = Path(cache_root or PREDICTIONS_DIR)
-    window = f"{pd.Timestamp(start):%Y-%m-%d}_{pd.Timestamp(end):%Y-%m-%d}"
-    name = spec_name if bars is None else f"{spec_name}__warmup{bars}"
-    return root / window / DEGENERATE_DIRNAME / f"{_group_dir(config).name}__{name}.json"
+def marker_path(path: Path) -> Path:
+    """Degenerate marker matching a prediction payload ``path`` (``<group>__<name>.json``)."""
+    return (path.parent.parent / DEGENERATE_DIRNAME
+            / f"{path.parent.name}__{path.stem}.json")
 
 
 def provenance(config, spec: ModelSpec, start: str, end: str, panel: pd.DataFrame,
@@ -173,15 +170,9 @@ def _with_predictions(panel: pd.DataFrame, preds: pd.Series) -> pd.DataFrame:
     return out.sort_index()
 
 
-def _marker_for(path: Path) -> Path:
-    """Marker file for a prediction set, under ``<window>/_degenerate/``."""
-    return (path.parent.parent / DEGENERATE_DIRNAME
-            / f"{path.parent.name}__{path.stem}.json")
-
-
 def mark_degenerate(path: Path, request: dict, record: dict) -> Path:
     """Record a degenerate prediction set (and drop any stale payload)."""
-    marker = _marker_for(path)
+    marker = marker_path(path)
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(json.dumps({**request, **record,
                                   "detected": datetime.now(timezone.utc).isoformat()},
@@ -194,7 +185,7 @@ def mark_degenerate(path: Path, request: dict, record: dict) -> Path:
 
 
 def _degenerate_record(path: Path) -> dict | None:
-    marker = _marker_for(path)
+    marker = marker_path(path)
     if not marker.exists():
         return None
     return json.loads(marker.read_text())
@@ -235,7 +226,7 @@ def _cached_or_compute(path: Path, panel: pd.DataFrame, config, spec: ModelSpec,
             mark_degenerate(path, request, degenerate)
             raise DegenerateCandidate(path.stem, degenerate)
     write_predictions(preds, path, request)
-    marker = _marker_for(path)
+    marker = marker_path(path)
     if marker.exists():          # a stale marker from an earlier degenerate run
         marker.unlink()
     return preds
