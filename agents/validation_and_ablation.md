@@ -63,7 +63,7 @@ were fixed **before** looking at market regimes.
 
 - Predictions do not depend on the rebalance cadence or on any book knob, so the
   weekly / 4w / 12w candidates of one (look-ahead, refit) share a single file.
-- The 93 specs x 9 (look-ahead, refit) pairs give **837 prediction sets**; the full
+- The 21 specs x 9 (look-ahead, refit) pairs give **189 prediction sets**; the full
   study reuses them, so the ranking costs only book simulation.
 - **Degenerate sets are not stored.** If the predictions are constant across tickers
   on the window (mean cross-sectional std < 1e-12 — e.g. L1 models that collapse to
@@ -86,10 +86,10 @@ were fixed **before** looking at market regimes.
 
 | dimension | values | count |
 | --- | --- | --- |
-| model spec | ridge {1e-3, 1e-2, 1e-1, 1, 10} (5); lasso {1e-4, 1e-3, 1e-2, 1e-1} (4); enet {1e-4 … 1e-1} x l1_ratio {0.5, 0.25, 0.75} (12); rff {1e-4 … 10} x D {100, 200, 500} x gamma {0.01, 0.1, 1, 10} (72) | **93** |
+| model spec | ridge {1e-3, 1e-2, 1e-1, 1, 10} (5); lasso {1e-4, 1e-3, 1e-2, 1e-1} (4); enet {1e-4 ... 1e-1} x l1_ratio {0.5, 0.25, 0.75} (12) | **21** |
 | cadence, look-ahead, refit | (rebalance, look-ahead) pairs with look-ahead >= cadence: weekly x {1,4,12}, 4w x {4,12}, 12w x {12}; refit {W-FRI, ME, QE} with refit_interval >= cadence | **14** |
 | book | **full product** of vol window {4, 8, 12, 24, 48}w x vol target {20%, 10%, off} x leverage cap {1.0, 2.0, 3.0} (caps 2.0/3.0 pay a 6.8% ann. borrow fee), rf sleeve fixed at 3% | **45** |
-| | **candidates** | **58,590** |
+| | **candidates** | **13,230** |
 
 - Metric: **net Sharpe** on the validation window (zero risk-free rate,
   annualised x sqrt(52)).
@@ -106,7 +106,7 @@ were fixed **before** looking at market regimes.
   ranking for the record but can never win.
 - **Cost:** the book simulation is a numpy state machine
   (`portfolio.build_forecast_vol_portfolio`), so one book takes 17–19 ms and the
-  58,590-candidate ranking runs in **~5 min** on 8 processes; the rolling forecast
+  13,230-candidate ranking runs faster than the old RFF-inclusive space; the rolling forecast
   volatility is shared across the book cells that use the same vol window.
 - The search is pre-declared: the grid, the combos and the book cells are fixed
   before the ranking is read.
@@ -130,7 +130,7 @@ and was removed on 2026-11-06 — see the history note in §6.
 `gross_sharpe`, `max_drawdown`, `total_return`, `ann_return`, `ann_vol`, `hit_rate`,
 `avg_turnover`) and `degenerate` / `degenerate_reason`. `book` is the cell slug
 (`w12_vt20_rf3_cap1.0`); its human-readable note is kept once per name in
-`run_parameters.json` rather than repeated on 58,590 rows.
+`run_parameters.json` rather than repeated on 13,230 rows.
 
 `results/_study/validation_winner.json` — the top row plus its provenance (spec
 record, combo, book, metrics, cache path, seed, window, candidate counts).
@@ -157,8 +157,8 @@ states in the file itself that picking the arm by test Sharpe would be snooping 
 arm is a validation-window choice.
 
 Command: `python scripts/run_study.py rank` (8 worker processes by default; only the
-book simulation runs — the model fits come from the cache). Measured: ≈3 min for the
-full 58,590-candidate space on 2026-11-04. `test` draws the overall winner once on the
+book simulation runs — the model fits come from the cache). The active space is now
+13,230 candidates after removing RFF. `test` draws the overall winner once on the
 test window; `draw` does the same for **each refit arm's** best candidate and writes
 `draws/arm_comparison.txt`.
 

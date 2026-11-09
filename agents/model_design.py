@@ -6,13 +6,13 @@ src/pipeline.py, scripts/run_study.py, scripts/run_backtest.py) is implemented f
 this file. The validation protocol and its measured record live in
 agents/validation_and_ablation.md; results are logged there and under results/.
 
-**Current scheme (2026-11-03): ONE joint ranking.** The walk-forward predictions for
+**Current scheme (2026-11-09): ONE joint ranking.** The walk-forward predictions for
 every (model spec, look-ahead, refit cadence) are computed once and cached; the study
 then replays them through every book configuration and ranks the whole combined space
 of **model x (rebalance, look-ahead, refit) x book** on a single validation window
 (2017-01-01..2022-12-31):
 
-    93 specs x 14 combos x 45 book cells = 58,590 candidates, best net Sharpe wins.
+    21 specs x 14 combos x 45 book cells = 13,230 candidates, best net Sharpe wins.
 
 There is no separate model-selection phase and no separate ablation phase. The cache
 lives under results/_study/predictions. Seed `SEED` (§5) is fixed everywhere. The
@@ -92,37 +92,21 @@ SIGNAL_MOM_LB = 52                 # weekly bars, ≈ 12-month momentum (rule pa
 # validation_and_ablation.md §5.1c).
 
 # ML path (run_pipeline, mode: selection) — phase-1 hyperparameters.
-# 2026-11-03 grid revision (user request): 4 families on reduced, PER-FAMILY alpha
-# grids; enet adds the l1_ratio dimension; rff (Random Fourier Features -> Ridge)
-# adds the rff_dim x gamma dimensions -> 4 + 5 + 12 + 72 = 93 specs, pre-declared
-# before any validation.
+# 2026-11-09 grid revision (user request): remove the RFF family completely. The
+# active space is the three linear families on reduced, PER-FAMILY alpha grids;
+# enet adds the l1_ratio dimension -> 5 + 4 + 12 = 21 specs, pre-declared before
+# any validation.
 # (2026-11-02 smoke finding: a shared {1e-3..100} grid sits above the L1 entry
 # threshold on this data — max |corr|*std(target) = 0.00125/0.00315/0.00789 for the
 # 1/4/12-week targets — so lasso/enet collapse to intercept-only; the per-family
 # grids keep the L1 families in their active range.)
-MODEL_FAMILIES = ("ridge", "lasso", "enet", "rff")     # 4 model families
+MODEL_FAMILIES = ("ridge", "lasso", "enet")     # 3 model families
 RIDGE_ALPHAS = (1e-3, 1e-2, 1e-1, 1.0, 10.0)
 LASSO_ALPHAS = (1e-4, 1e-3, 1e-2, 1e-1)
 ENET_ALPHAS = (1e-4, 1e-3, 1e-2, 1e-1)
 ENET_L1_RATIOS = (0.5, 0.25, 0.75)
-# RFF ridge family (added 2026-11-02): ridge on seeded RandomFourierFeatures
-# approximating a Gaussian-kernel ridge. alpha x rff_dim x gamma = 6 x 3 x 4 = 72.
-#   rff_dim (D): {100, 200, 500} — D > p = 21; D = 10 (the first proposal) is a
-#     bottleneck projection with ~1/sqrt(D) ~ 32% kernel-approximation error and
-#     selection noise from the W draw, so the low anchor stays above the feature
-#     count.
-#   gamma: the RBF INVERSE bandwidth, k(x, y) = exp(-gamma * ||x-y||^2) (NOT the
-#     lengthscale; sigma = 1/sqrt(2 gamma)). Features are standardized per fit
-#     (p = 21), typical pair distance^2 ~ 2p = 42 -> median-heuristic gamma ~0.01.
-#     The grid {1e-2, 1e-1, 1, 10} was set by the user on 2026-11-03; by the a-priori
-#     argument gamma >= 1 already collapses the kernel towards a point mass (k(e^-42)
-#     ~ 0 at the mean pair distance), so those cells are retained deliberately as a
-#     measured check on that claim, not because signal is expected there.
-RFF_ALPHAS = (1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0)
-RFF_DIMS = (100, 200, 500)
-RFF_GAMMAS = (1e-2, 1e-1, 1.0, 10.0)
-# Grid -> 93 specs: ridge {5 alphas} + lasso {4 alphas}
-#                   + enet {4 alphas x 3 ratios} + rff {6 alphas x 3 dims x 4 gammas}
+# Grid -> 21 specs: ridge {5 alphas} + lasso {4 alphas}
+#                   + enet {4 alphas x 3 ratios}
 MODEL_TARGETS = {"absolute1": "fwd_ret_1bar",
                  "absolute4": "fwd_ret_4bar",
                  "absolute12": "fwd_ret_12bar"}
@@ -228,8 +212,8 @@ SUCCESS_MAXDD_LE_BENCHMARK = True
 # walk-forward predictions for every (spec, look-ahead, refit) are cached as CSVs;
 # the study replays them through every book configuration and ranks the whole space
 # by net Sharpe on the combined 2017-2022 window (validation_and_ablation.md §3):
-#   93 specs x 14 valid (rebalance, look-ahead, refit) combos x 45 book cells
-#   = 58,590 candidates, ONE ranking, degenerate cells excluded from the win.
+#   21 specs x 14 valid (rebalance, look-ahead, refit) combos x 45 book cells
+#   = 13,230 candidates, ONE ranking, degenerate cells excluded from the win.
 # One selection criterion over that scored space (§3.1 of the protocol doc): the
 # highest net Sharpe wins.
 # Valid combos obey look-ahead >= rebalance cadence AND refit_interval >= rebalance
@@ -242,7 +226,7 @@ SUCCESS_MAXDD_LE_BENCHMARK = True
 # of the forty-five cells are duplicates (inert lever cap with the overlay off), so a
 # candidate runs 40 simulations; the whole ranking is ~5 min on 8 workers, all model
 # fits cached.
-RANK_CANDIDATES = 58_590           # 93 specs x 14 combos x 45 book cells
+RANK_CANDIDATES = 13_230           # 21 specs x 14 combos x 45 book cells
 BOOK_SIMULATIONS = 40              # distinct books per candidate (see §7)
 
 # Headline (None until a ranking winner passes the §1.2 gate on the test window).
@@ -300,7 +284,7 @@ def main() -> None:
           f"{Portfolio.vol_target_cap} | cost_bps {Portfolio.cost_bps} (moomoo)")
     print(f"split       : train {TRAIN[0]}..{TRAIN[1]} | validation (combined) "
           f"{VALIDATION[0]}..{VALIDATION[1]} | test {TEST[0]}..{TEST[1]}")
-    print(f"phase       : ONE joint ranking — {RANK_CANDIDATES} candidates (93 specs x "
+    print(f"phase       : ONE joint ranking — {RANK_CANDIDATES} candidates (21 specs x "
           f"14 (rebalance, look-ahead, refit) combos x 45 book cells), best validation "
           f"net Sharpe over the combined space")
     print(f"determinism : seed {SEED}; predictions cached under {PREDICTIONS_CACHE} "

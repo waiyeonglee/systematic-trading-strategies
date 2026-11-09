@@ -87,7 +87,7 @@ python scripts/build_features.py --horizon 4
 
 python scripts/run_backtest.py                  # single walk-forward run: select on the combined
                                                 # 2017-2022 window (5y rolling train, 6y val),
-                                                # 93-spec grid, refit QE, 4w cadence,
+                                                # 21-spec grid, refit QE, 4w cadence,
                                                 # vol target 10% / rf 3%; measures the test span
                                                 # (default 2023-2025)
 python scripts/run_backtest.py --model lasso_a0.01 --horizon 1 --rebalance weekly   # single cell
@@ -99,9 +99,9 @@ python scripts/run_backtest.py --test-start 2020-01-01 --test-end 2022-12-31 --w
 #   W-FRI x weekly pairs (3) · ME x {1w,4w cadences} (5) · QE x all pairs (6) -> 14 combos
 
 python scripts/run_study.py rank                # ONE joint ranking over the combined
-                                                # space: 93 specs x 14 (rebalance,
+                                                # space: 21 specs x 14 (rebalance,
                                                 # look-ahead, refit) combos x 45 book
-                                                # cells = 58,590 candidates on
+                                                # cells = 13,230 candidates on
                                                 # 2017-2022, best net Sharpe wins
                                                 # -> results/_study/validation_ranking.csv
                                                 # (~3-4 min on 8 workers; the model fits

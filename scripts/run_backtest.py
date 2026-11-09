@@ -6,21 +6,20 @@ feature panel with the 1/4/12-bar forward-return labels, selects the grid point
 with the best validation net Sharpe and measures it once on the test window against
 SPY buy-and-hold and an equal-weight-16 benchmark (design §3 gate).
 
-2026-11-03 grid revision (user request): 4 model families (ridge / lasso / enet /
-rff-ridge) on a reduced grid — lasso {1e-4 .. 0.1}, ridge {1e-3 .. 10}, enet
-{1e-4 .. 0.1} x l1_ratio {0.5, 0.25, 0.75}, and rff {1e-4 .. 10} x D {100, 200, 500}
-x gamma {1e-2, 1e-1, 1, 10} -> 4 + 5 + 12 + 72 = 93 specs; look-ahead {1, 4, 12}
-weeks x rebalance cadence {weekly=1w, 4w, 12w} under the rule **look-ahead >=
+2026-11-09 grid revision (user request): 3 model families (ridge / lasso / enet)
+on a reduced grid — lasso {1e-4 .. 0.1}, ridge {1e-3 .. 10}, enet
+{1e-4 .. 0.1} x l1_ratio {0.5, 0.25, 0.75} -> 4 + 5 + 12 = 21 specs;
+look-ahead {1, 4, 12} weeks x rebalance cadence {weekly=1w, 4w, 12w} under the rule **look-ahead >=
 rebalance frequency**, x model refit cadence {W-FRI, ME, QE} under the rule
 **refit_interval >= prediction_interval** (both enforced in ``default_config``).
 V1 no longer exists as a separate stage: the study ranks model x look-ahead x
 frequency x refit **x book** jointly on the combined validation window
-(93 specs x 14 valid combos x 45 book cells = 58,590 cells, see
+(21 specs x 14 valid combos x 45 book cells = 13,230 cells, see
 ``scripts/run_study.py``). This CLI measures **one pinned cell** (validation + the
 single test draw); it does not re-rank the space.
 
 Defaults encode the v2 fixed window (data ends 2026-01-01): weekly bars, 5y rolling
-train / 6y combined validation (2017-2022) / quarterly refits, the 93-spec grid,
+train / 6y combined validation (2017-2022) / quarterly refits, the 21-spec grid,
 absolute12 target, embargo 12, forecast-vol-scaled book (24w vol, 4-week rebalance,
 moomoo, 0 bps, cost gate 1.0) with the 10% vol target / cap 1.0 / 3% risk-free
 sleeve. Selection uses the same combined validation window as the study
@@ -62,26 +61,14 @@ from utils.paths import FEAR_GREED_PATH, RESULTS_DIR, raw_data_dir
 # in the lower alpha range because this data's feature signal (~0.001-0.008 in alpha
 # units) is below the entry threshold of a {1e-3..100} grid (intercept-only collapse,
 # 2026-11-02 smoke finding).
-# RFF ridge family: ridge on seeded random Fourier features approximating a
-# Gaussian-kernel ridge. alpha is the L2 strength on the D random features (larger
-# D needs larger alpha; the sweep spans {1e-4..10}); gamma is the RBF INVERSE
-# bandwidth, k(x, y) = exp(-gamma * ||x-y||^2). On the standardized 21-feature panel
-# typical pair distance^2 ~ 2p = 42, so gamma ~0.01 is the median heuristic,
-# gamma <= 0.1 stays in the smooth -> local range, and gamma >= 1 collapses the
-# kernel towards a point mass (kept in the grid 2026-11-03 to measure that claim).
 RIDGE_ALPHAS = (1e-3, 1e-2, 1e-1, 1.0, 10.0)
 LASSO_ALPHAS = (1e-4, 1e-3, 1e-2, 1e-1)
 ENET_ALPHAS = (1e-4, 1e-3, 1e-2, 1e-1)
 ENET_L1_RATIOS = (0.5, 0.25, 0.75)
-RFF_ALPHAS = (1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0)
-RFF_DIMS = (100, 200, 500)                           # random feature count (D > p = 21)
-RFF_GAMMAS = (1e-2, 1e-1, 1.0, 10.0)                 # RBF inverse bandwidth
 GRID_ENTRIES = [
     {"family": "ridge", "alpha": list(RIDGE_ALPHAS)},
     {"family": "lasso", "alpha": list(LASSO_ALPHAS)},
     {"family": "enet", "alpha": list(ENET_ALPHAS), "l1_ratio": list(ENET_L1_RATIOS)},
-    {"family": "rff", "alpha": list(RFF_ALPHAS),
-     "rff_dim": list(RFF_DIMS), "gamma": list(RFF_GAMMAS)},
 ]
 
 # Rebalance cadence -> bars (design rule: look-ahead >= frequency).
@@ -217,8 +204,8 @@ def main() -> None:
                         help="disable the 10%% vol-target overlay (plain ADR-07 book)")
     parser.add_argument("--model", default=None,
                         choices=[s.name for s in specs_from_config(GRID_ENTRIES)],
-                        help="pin one spec (mode: single, e.g. lasso_a0.01, "
-                             "rff_a0.01_d100_g0.1); default: 93-spec selection grid")
+                        help="pin one spec (mode: single, e.g. lasso_a0.01); "
+                             "default: 21-spec selection grid")
     parser.add_argument("--vol-window", type=int, default=24,
                         help="realized-vol estimation window in bars (default: 24; "
                              "ranking winner: 12)")

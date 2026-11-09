@@ -427,17 +427,8 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
     spec = selected_spec(config, selected)
     model = spec.build(config.seed)
     model.fit(history[feature_cols].values, history[config.target_col].values)
-    if spec.penalty == "rff":
-        # RFF coefficients live in the D-dim random-feature space, not the 21 input
-        # features; record the spec plus summary stats instead of a per-feature row.
-        coefs = np.asarray(model.named_steps["reg"].coef_)
-        info = {"family": "rff", "alpha": spec.alpha, "rff_dim": spec.rff_dim,
-                "gamma": spec.gamma, "coef_abs_mean": float(np.abs(coefs).mean()),
-                "coef_norm": float(np.linalg.norm(coefs))}
-        save_table(pd.DataFrame([info]), out_dir, "coefficients")
-    else:
-        save_table(pd.Series(model.named_steps["reg"].coef_, index=feature_cols),
-                   out_dir, "coefficients")
+    save_table(pd.Series(model.named_steps["reg"].coef_, index=feature_cols),
+               out_dir, "coefficients")
 
     per_period = {name: period_stats(values, config.ppy)
                   for name, values in comparison.items()}
@@ -542,8 +533,7 @@ def run_parameters(results: dict, feature_cols: list[str] | None = None) -> dict
                            if col == config.target_col),
             "embargo_bars": config.embargo,
             "specs": [{"name": spec.name, "family": spec.name.split("_")[0],
-                       "alpha": spec.alpha, "l1_ratio": spec.l1_ratio,
-                       "rff_dim": spec.rff_dim, "gamma": spec.gamma}
+                       "alpha": spec.alpha, "l1_ratio": spec.l1_ratio}
                       for spec in config.grid],
         },
         "portfolio": {

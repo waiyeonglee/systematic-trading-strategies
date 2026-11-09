@@ -7,14 +7,14 @@ stored as CSVs under ``results/_study/predictions``; this script replays them th
 every book configuration and ranks the **whole combined space** by net Sharpe on the
 combined validation window (2017-01-01..2022-12-31):
 
-    model spec   93   (5 ridge + 4 lasso + 12 enet + 72 rff)
+    model spec   21   (5 ridge + 4 lasso + 12 enet)
     combo        14   (rebalance, look-ahead, refit) under look-ahead >= cadence and
                       refit_interval >= cadence
     book         45   (vol window 4/8/12/24/48w x vol target 20%/10%/off x leverage
                       cap 1.0/2.0/3.0, rf sleeve fixed at 3%; caps 2.0/3.0 pay a
                       6.8% ann. borrow fee)
     ---------------
-    candidates   58,590
+    candidates   13,230
 
 Only the book simulation runs — no refitting — so a full ranking is minutes, and the
 predictions are reused byte-identically across every book cell of a candidate. Cells
@@ -26,7 +26,7 @@ entry and in the ranking/winner files; a cache entry written under another seed 
 recomputed. All book cells of a candidate share one 48-bar volatility warmup.
 
 Outputs (``results/_study``):
-    validation_ranking.csv   one row per candidate (58,590), sorted by net Sharpe
+    validation_ranking.csv   one row per candidate (13,230), sorted by net Sharpe
     validation_winner.json   the top row plus its provenance
     run_parameters.json      the space definition actually searched
     draws/<arm>/<run_tag>/   test draw of an arm's best candidate (tables + series)
@@ -259,9 +259,7 @@ def run_rank(models: str | None, combos: str | None, refresh: bool, jobs: int) -
     best = live.iloc[0]
 
     spec = ModelSpec.from_record({"family": best["family"], "alpha": best["alpha"],
-                                  "l1_ratio": _optional(best["l1_ratio"]),
-                                  "rff_dim": _optional(best["rff_dim"]),
-                                  "gamma": _optional(best["gamma"])})
+                                  "l1_ratio": _optional(best["l1_ratio"])})
     winner_config = book_config(int(best["look_ahead"]), rebalance=best["rebalance"],
                                 refit=best["refit"], model=best["model"],
                                 book={"vol_window": int(best["vol_window"]),
@@ -276,9 +274,7 @@ def run_rank(models: str | None, combos: str | None, refresh: bool, jobs: int) -
                        "books": len(BOOKS), "scored": int(len(ranking))},
         "model": {"name": best["model"], "family": best["family"],
                   "alpha": float(best["alpha"]),
-                  "l1_ratio": _optional(best["l1_ratio"]),
-                  "rff_dim": _optional(best["rff_dim"]),
-                  "gamma": _optional(best["gamma"])},
+                  "l1_ratio": _optional(best["l1_ratio"])},
         "combo": {"target": best["target"], "look_ahead": int(best["look_ahead"]),
                   "rebalance": best["rebalance"], "refit": best["refit"]},
         "book": {"name": best["book"], "vol_window": int(best["vol_window"]),

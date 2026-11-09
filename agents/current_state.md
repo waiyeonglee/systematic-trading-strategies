@@ -1950,3 +1950,44 @@ H=4 slopes: mean −0.080, median −0.074, 95% of refits negative. H=1 slopes: 
   if that number is produced, not only against zero — otherwise the baseline comparison
   flatters the AR(1) and understates how badly calibrated the ML levels were.
 - `--horizon 12` is supported by the same script if the report needs the 12-bar case.
+
+---
+
+## Results Reset — Fresh Experiment Baseline (2026-11-09)
+
+### Action
+
+All generated artifacts under `results/` were cleared so the next experiment can be
+treated as a fresh run. Removed top-level outputs included prior base-study results,
+macro-study results, prediction caches, plots, trend baselines, and forecast
+baselines.
+
+### State
+
+- `results/` is now the clean output location for the next run.
+- Any previously recorded result files, rankings, plots, cached predictions, draws,
+  or baseline outputs should be considered **stale** unless regenerated after this
+  reset.
+- Historical notes in this document may still describe earlier experiments for
+  provenance, but they should not be treated as current generated artifacts.
+- New report numbers should come only from results regenerated after this reset.
+
+---
+
+## RFF Removal — Active Model Space Reset (2026-11-09)
+
+### Action
+
+Removed the RFF model family from the active implementation and study design. The
+fresh-run model space is now Ridge, Lasso, and Elastic Net only.
+
+### State
+
+- Active model grid: 5 Ridge specs + 4 Lasso specs + 12 Elastic Net specs = **21**
+  specs.
+- Active joint ranking size: 21 specs x 14 valid `(rebalance, look-ahead, refit)`
+  combos x 45 book cells = **13,230** candidates.
+- RFF-specific fields (`rff_dim`, `gamma`) were removed from model specs, cache
+  provenance, study rows, winner metadata, run parameters, and coefficient reporting.
+- Earlier RFF-related notes remain historical provenance only and are stale for any
+  experiment regenerated after this reset.

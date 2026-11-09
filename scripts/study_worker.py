@@ -186,7 +186,6 @@ def _candidate_row(spec: ModelSpec, rebalance: str, horizon: int, refit: str) ->
     """Model + combo columns shared by every book cell of a candidate."""
     return {"model": spec.name, "family": spec.name.split("_")[0],
             "alpha": spec.alpha, "l1_ratio": spec.l1_ratio,
-            "rff_dim": spec.rff_dim, "gamma": spec.gamma,
             "target": f"absolute{horizon}", "look_ahead": horizon,
             "rebalance": rebalance, "refit": refit,
             "combo": combo_slug(rebalance, horizon, refit)}

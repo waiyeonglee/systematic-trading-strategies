@@ -104,8 +104,6 @@ def provenance(config, spec: ModelSpec, start: str, end: str, panel: pd.DataFram
         "family": spec.penalty,
         "alpha": spec.alpha,
         "l1_ratio": spec.l1_ratio,
-        "rff_dim": spec.rff_dim,
-        "gamma": spec.gamma,
         "target_col": config.target_col,
         "rebalance": config.forecast_vol.rebalance,
         "refit_every": config.refit_every,
