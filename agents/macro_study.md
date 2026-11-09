@@ -66,7 +66,7 @@ Verified on the built panel (`macro_state(..., lag_months=1)`):
 
 | Layer | Window | Notes |
 | --- | --- | --- |
-| Train | **2011-01-01 .. 2018-12-31** | rolling **8y = 416 weekly bars** per refit (not 260) |
+| Train | **2011-01-01 .. 2018-12-31** | rolling **8y = 416 weekly bars** per refit |
 | Validation | **2019-01-01 .. 2022-12-31** | the single ranking window; 4 calendar years |
 | Test | **2023-01-01 .. 2025-12-31** | reserved final draw of the winner, run once after selection is locked |
 

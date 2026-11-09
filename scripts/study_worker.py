@@ -34,7 +34,7 @@ from prediction_cache import (DegenerateCandidate, cache_path, cached_prediction
                               cached_warmup)
 from run_backtest import default_config
 
-VALIDATION = ("2017-01-01", "2022-12-31")
+VALIDATION = ("2019-01-01", "2022-12-31")
 VOL_WARMUP_BARS = 48            # covers the longest vol_window (48w)
 
 # Book space: the full product of the three strategy knobs (no shared base row).
@@ -66,7 +66,7 @@ _STATE: dict = {}
 
 
 def book_config(horizon: int, *, rebalance: str, refit: str, model: str | None,
-                book: dict, window_train: str | None = "5y",
+                book: dict, window_train: str | None = "8y",
                 grid_entries: list[dict] | None = None):
     """Config for one book cell: the candidate plus that cell's book knobs."""
     book = dict(book)
@@ -91,7 +91,7 @@ def effective_key(knobs: dict) -> tuple:
 
 def init(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: pd.Series,
          cache_root: Path, validation: tuple[str, str] = VALIDATION,
-         window_train: str | None = "5y",
+         window_train: str | None = "8y",
          grid_entries: list[dict] | None = None) -> None:
     """Called once per worker process."""
     _STATE.update(panel=panel, feature_cols=feature_cols,

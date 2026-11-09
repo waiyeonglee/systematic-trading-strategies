@@ -33,7 +33,7 @@ from utils.checks import require_columns, require_panel
 
 
 def ar1_forecast(panel: pd.DataFrame, target_col: str = TARGET_COL,
-                 refit_every: str = "QE", window: int | None = 260,
+                 refit_every: str = "QE", window: int | None = 416,
                  embargo: int | None = None,
                  min_obs: int = 40) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Walk-forward one-lag forecasts of the H-bar forward return.

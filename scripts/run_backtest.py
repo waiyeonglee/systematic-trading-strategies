@@ -19,8 +19,8 @@ frequency x refit **x book** jointly on the combined validation window
 ``scripts/run_study.py``). This CLI measures **one pinned cell** (validation + the
 single test draw); it does not re-rank the space.
 
-Defaults encode the v2 fixed window (data ends 2026-01-01): weekly bars, 5y rolling
-train / 6y combined validation (2017-2022) / quarterly refits, the 20-spec grid,
+Defaults encode the v2 fixed window (data ends 2026-01-01): weekly bars, 8y rolling
+train / 4y combined validation (2019-2022) / quarterly refits, the 20-spec grid,
 absolute12 target, embargo 12, forecast-vol-scaled book (24w vol, 4-week rebalance,
 moomoo, 0 bps, cost gate 1.0) with the 10% vol target / cap 1.0 / 3% risk-free
 sleeve. Selection uses the same combined validation window as the study
@@ -124,7 +124,7 @@ def default_config(horizon: int, vol_target: bool | float | None,
                    refit_every: str = "QE",
                    vol_cap: float = 1.0, vol_rf: float = 0.03,
                    lev_fee: float = 0.0,
-                   window_train: str | None = "5y",
+                   window_train: str | None = "8y",
                    grid_entries: list[dict] | None = None) -> PipelineConfig:
     """Pipeline settings with the fixed v2 window.
 
@@ -135,8 +135,8 @@ def default_config(horizon: int, vol_target: bool | float | None,
     10%), or ``False`` / ``None`` (overlay off). ``vol_min_periods`` is clamped to
     the window so short vol windows (4w/8w/12w) stay valid.
 
-    ``window_train`` is the rolling training window (``"5y"`` = the 260-bar v2
-    default; ``"8y"`` = 416 bars for the macro study). ``grid_entries`` replaces
+    ``window_train`` is the rolling training window (``"8y"`` = the 416-bar v2
+    default shared with the macro study). ``grid_entries`` replaces
     :data:`GRID_ENTRIES` when the pinned ``model`` comes from a different grid (e.g.
     the elastic-net-only macro grid, which adds ``l1_ratio`` 0 and 1).
 
@@ -186,11 +186,11 @@ def main() -> None:
                         help="first test date (default: 2023-01-01)")
     parser.add_argument("--test-end", default="2025-12-31",
                         help="last test date (default: 2025-12-31)")
-    parser.add_argument("--window-val", default="6y",
-                        help="validation span before test_start (default: 6y = the "
-                             "combined 2017-2022 study window)")
-    parser.add_argument("--window-train", default="5y",
-                        help="rolling training window (default: 5y)")
+    parser.add_argument("--window-val", default="4y",
+                        help="validation span before test_start (default: 4y = the "
+                             "combined 2019-2022 study window)")
+    parser.add_argument("--window-train", default="8y",
+                        help="rolling training window (default: 8y = 416 weekly bars)")
     parser.add_argument("--refit-every", default="QE", choices=("ME", "QE"),
                         help="refit cadence (default: QE; ranking dimension: "
                              "ME|QE, refit must be no more frequent than "

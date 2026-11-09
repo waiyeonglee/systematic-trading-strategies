@@ -1,12 +1,8 @@
-# trend-following-strategy-v2
+# trend-following-strategy
 
-Standalone re-implementation of a cross-asset weekly trend-following strategy
+Standalone implementation of a cross-asset weekly trend-following strategy
 (DSA5205 Project 2). Universe: 16 tradable ETFs (9 US sectors + 7 diversifiers)
 with SPY as benchmark, plus the CNN Fear & Greed index as an alternative feature.
-
-This project is built step by step and deliberately carries **no stale imports,
-derived data, or old results** from the reference project
-(`../trend-following-strategy`).
 
 ## Dataset (fixed window)
 
@@ -86,7 +82,7 @@ python scripts/build_features.py --no-fear-greed
 python scripts/build_features.py --horizon 4
 
 python scripts/run_backtest.py                  # single walk-forward run: select on the combined
-                                                # 2017-2022 window (5y rolling train, 6y val),
+                                                # 2019-2022 window (8y rolling train, 4y val),
                                                 # 20-spec Elastic-Net grid, refit QE, 4w cadence,
                                                 # vol target 10% / rf 3%; measures the test span
                                                 # (default 2023-2025)
@@ -102,7 +98,7 @@ python scripts/run_study.py rank                # ONE joint ranking over the com
                                                 # space: 20 specs x 11 (rebalance,
                                                 # look-ahead, refit) combos x 45 book
                                                 # cells = 9,900 candidates on
-                                                # 2017-2022, best net Sharpe wins
+                                                # 2019-2022, best net Sharpe wins
                                                 # -> results/_study/validation_ranking.csv
                                                 # (~3-4 min on 8 workers; the model fits
                                                 # come from the prediction cache)
@@ -124,7 +120,7 @@ python scripts/run_trend_baseline.py
 python scripts/run_trend_baseline.py --rule sma40
 
 # AR(1) forecast baseline (no positions, no costs): OOS R² against zero and against
-# the historical mean, refit QE on a rolling 5y window; H=4 matches the winner's horizon
+# the historical mean, refit QE on a rolling 8y window; H=4 matches the winner's horizon
 python scripts/run_forecast_baseline.py --horizon 4
 python scripts/run_forecast_baseline.py --horizon 1
 
@@ -133,7 +129,7 @@ python scripts/build_features_macro.py          # 19 firm x (5 macro + const) = 
                                                 # (git-ignored, inspection only)
 python scripts/run_study_macro.py rank          # macro-interaction study: 20 enet specs x
                                                 # 11 ME/QE combos x 45 books = 9,900 candidates
-                                                # on 2019-2022 (train 2011-2018, 8y rolling)
+                                                # on 2019-2022 (same 8y rolling train)
                                                 # -> results/_study_macro/validation_ranking.csv
 python scripts/run_study_macro.py cache         # fit only the missing prediction sets
                                                 # (6 (look-ahead, refit) forecast groups)

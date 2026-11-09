@@ -53,7 +53,7 @@ class PipelineConfig:
         strategy: Registered portfolio rule, e.g. ``"forecast_vol_scaled"``.
         initial_capital_usd: Starting equity of the simulated book.
         refit_every: Refit block as a pandas offset alias, e.g. ``"QE"``.
-        window_train: Rolling training window as text (e.g. ``"5y"``), or ``None`` to
+        window_train: Rolling training window as text (e.g. ``"8y"``), or ``None`` to
             use all past data at every refit.
         embargo: Most recent dates dropped before each refit (label horizon).
         grid: Candidate :class:`ModelSpec` points; empty defaults to the design grid.
@@ -68,7 +68,7 @@ class PipelineConfig:
     mode: str = "selection"     # "selection" (grid ranking) or "single" (pinned spec)
     initial_capital_usd: float = 100_000.0
     refit_every: str = "QE"
-    window_train: str | None = "5y"
+    window_train: str | None = "8y"
     embargo: int = 12
     grid: tuple[ModelSpec, ...] = ()
     seed: int = DEFAULT_SEED
@@ -90,7 +90,7 @@ class PipelineConfig:
 def run_tag(config: PipelineConfig, test_start: str, test_end: str,
             window_val: str = "3y") -> str:
     """Filename of the run folder, e.g.
-    ``weekly_fg_roll5y_val3y_qrefit_grid6_vt0.1c1rf3_2023-2025``.
+    ``weekly_fg_roll8y_val3y_qrefit_grid6_vt0.1c1rf3_2023-2025``.
     """
     parts = [config.freq, "fg"]
     if config.strategy.startswith("trend"):

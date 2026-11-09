@@ -10,7 +10,7 @@ agents/validation_and_ablation.md; results are logged there and under results/.
 every (model spec, look-ahead, refit cadence) are computed once and cached; the study
 then replays them through every book configuration and ranks the whole combined space
 of **model x (rebalance, look-ahead, refit) x book** on a single validation window
-(2017-01-01..2022-12-31):
+(2019-01-01..2022-12-31):
 
     20 specs x 11 combos x 45 book cells = 9,900 candidates, best net Sharpe wins.
 
@@ -87,7 +87,7 @@ SIGNAL_SMA_WINDOW = 40             # weekly bars, ≈ 200-day MA (rule path)
 SIGNAL_MOM_LB = 52                 # weekly bars, ≈ 12-month momentum (rule path)
 # Rule path (trend book): configured trend feature value > 0 -> signal on
 # (pred = +1 / 0 / -1). Kept as the documented reference; the fitted model is the
-# main implementation. Measured as the naive baseline on 2017-2022 / 2023-2025 by
+# main implementation. Measured as the naive baseline on 2019-2022 / 2023-2025 by
 # scripts/run_trend_baseline.py (results/trend_baseline; current_state Step 23,
 # validation_and_ablation.md §5.1c).
 
@@ -175,10 +175,10 @@ class Portfolio:
 # 5. Split & gates (protocol & discipline: agents/validation_and_ablation.md §1-§2)
 # ---------------------------------------------------------------------------
 WARMUP = ("2004-01-02", "2010-12-31")     # indicator history before training
-TRAIN = ("2011-01-01", "2016-12-31")      # rolling 5y (~260 weeks) minus embargo
-# ONE combined 6-year validation window: the joint model x book ranking runs on it,
+TRAIN = ("2011-01-01", "2018-12-31")      # rolling 8y (~416 weeks) minus embargo
+# ONE combined 4-year validation window: the joint model x book ranking runs on it,
 # from the cached walk-forward predictions (results/_study/predictions).
-VALIDATION = ("2017-01-01", "2022-12-31")
+VALIDATION = ("2019-01-01", "2022-12-31")
 TEST = ("2023-01-01", "2025-12-31")       # holdout; effective end 2025-09-26
                                           # under absolute12 (≈ 2025-11-21 under absolute4)
 SEED = DEFAULT_SEED                       # loaded from utils.config.DEFAULT_SEED —
@@ -209,14 +209,14 @@ SUCCESS_MAXDD_LE_BENCHMARK = True
 # There is no separate model-selection / ablation split (2026-11-03). The
 # walk-forward predictions for every (spec, look-ahead, refit) are cached as CSVs;
 # the study replays them through every book configuration and ranks the whole space
-# by net Sharpe on the combined 2017-2022 window (validation_and_ablation.md §3):
+# by net Sharpe on the combined 2019-2022 window (validation_and_ablation.md §3):
 #   20 specs x 11 valid (rebalance, look-ahead, refit) combos x 45 book cells
 #   = 9,900 candidates, ONE ranking, degenerate cells excluded from the win.
 # One selection criterion over that scored space (§3.1 of the protocol doc): the
 # highest net Sharpe wins.
 # Valid combos obey look-ahead >= rebalance cadence AND refit_interval >= rebalance
 # cadence: ME x {1w, 4w cadences} (5), QE x {all 6} (11).
-# Walk-forward mechanics fixed (not tuned): rolling 5y, embargo = horizon, seed =
+# Walk-forward mechanics fixed (not tuned): rolling 8y, embargo = horizon, seed =
 # SEED (§5, mirror of utils.config.DEFAULT_SEED).
 # The winner is a candidate, not a headline; it still needs the pre-registered ADR
 # and the single test draw.
@@ -269,7 +269,7 @@ def main() -> None:
     print("=" * 74)
     print(f"status      : design source of truth (copied & refreshed from the reference "
           f"project); first measured run validated byte-identical (ADR 09 stack, "
-          f"results/weekly_fg_roll5y_val3y_qrefit_grid6_vt0.1c1rf3_2023-2025)")
+          f"results/weekly_fg_roll8y_val3y_qrefit_grid6_vt0.1c1rf3_2023-2025)")
     print(f"data        : {DATA_START}..{DATA_END} (end inclusive; fetch exclusive "
           f"2026-01-02), {FREQUENCY} bars, {len(TRADABLES)} tradables "
           f"({len(CORE_ETFS)} sectors + {len(CROSS_ASSET_ETFS)} cross-asset) + {BENCHMARK}")

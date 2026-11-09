@@ -53,6 +53,10 @@ def test_fixed_splits_rejects_reversed_window():
         fixed_splits(_panel(), ("2021-09-24", "2020-01-03"))
 
 
+def test_base_study_validation_window_matches_macro_window():
+    assert worker.VALIDATION == ("2019-01-01", "2022-12-31")
+
+
 def test_horizon_slug_maps_each_target():
     assert horizon_slug("fwd_ret_1bar") == "la1"
     assert horizon_slug("fwd_ret_12bar") == "la12"

@@ -30,7 +30,7 @@ from run_backtest import build_panel
 from utils.config import duration_to_bars, periods_per_year, seed_everything
 from utils.paths import RESULTS_DIR
 
-WINDOWS = {"val": ("2017-01-01", "2022-12-31"), "test": ("2023-01-01", "2025-12-31")}
+WINDOWS = {"val": ("2019-01-01", "2022-12-31"), "test": ("2023-01-01", "2025-12-31")}
 
 
 def slice_window(preds: pd.DataFrame, window: str) -> pd.DataFrame:
@@ -54,8 +54,8 @@ def main() -> None:
     parser.add_argument("--horizon", type=int, default=4, choices=(1, 4, 12),
                         help="target horizon in bars (default: 4, the ranking winner)")
     parser.add_argument("--refit-every", default="QE", help="refit cadence (default: QE)")
-    parser.add_argument("--window-train", default="5y",
-                        help="rolling training window (default: 5y = 260 weekly bars)")
+    parser.add_argument("--window-train", default="8y",
+                        help="rolling training window (default: 8y = 416 weekly bars)")
     parser.add_argument("--min-obs", type=int, default=40,
                         help="minimum training pairs for the OLS slope (default: 40)")
     parser.add_argument("--out-dir", default=None,

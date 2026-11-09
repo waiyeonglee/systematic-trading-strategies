@@ -53,7 +53,7 @@ project state.
 ## Split And Holdout
 
 - Warmup period: pre-2011 history.
-- Base validation window: 2017-01-01 to 2022-12-31.
+- Base validation window: 2019-01-01 to 2022-12-31.
 - Macro validation window: 2019-01-01 to 2022-12-31.
 - Final holdout window: 2023-01-01 to 2025-12-31.
 - As of this reset, the 2023-2025 test window remains unseen for the current experiment

@@ -4,7 +4,7 @@
 > (model spec, look-ahead, refit cadence) are computed once and cached as npz
 > matrices; the study then replays them through every book cell and ranks the **whole
 > combined space of model x strategy parameters** by net Sharpe on a single combined
-> validation window (2017-01-01..2022-12-31). There is no separate model-selection
+> validation window (2019-01-01..2022-12-31). There is no separate model-selection
 > phase and no separate book-ablation phase — everything competes in one ranking.
 > The final test window (2023-2025) stays untouched by the ranking: it will be
 > measured once, afterwards, for the winner only after selection is locked.
@@ -27,8 +27,8 @@ were fixed **before** looking at market regimes.
 | Layer | Window | Role |
 | --- | --- | --- |
 | Warmup | 2004-01-02..2010-12-31 | feature / indicator warmup before training starts |
-| Train | **2011-2016** | rolling **5y (260 weeks)** minus the **embargo (= look-ahead: 1/4/12 bars)** at each refit; the window advances at every refit |
-| **Validation (combined)** | **2017-01-01..2022-12-31** | the single ranking window for the whole model x strategy space |
+| Train | **rolling history before each refit** | rolling **8y (416 weeks)** minus the **embargo (= look-ahead: 1/4/12 bars)** at each refit; the window advances at every refit |
+| **Validation (combined)** | **2019-01-01..2022-12-31** | the single ranking window for the whole model x strategy space |
 | **Test (final)** | **2023-01-01..2025-12-31** | reserved final draw of the ranking winner; effective end 2025-09-26 under a 12-week hold |
 
 ### 1.2 Rules that keep the numbers honest
@@ -176,7 +176,7 @@ holdout records are no longer part of the active experiment documentation. The a
 state is:
 
 - **Validation only so far:** model and strategy selection should be performed only on
-  the 2017-2022 validation window.
+  the 2019-2022 validation window.
 - **Test set remains unseen:** the 2023-2025 window has not been run for the current
   reset experiment and should be treated as the final holdout.
 - **One final measurement:** after the validation-selected configuration is locked,
@@ -188,7 +188,7 @@ state is:
 ## 6. Status
 
 - **Scheme in force:** one joint ranking over model x strategy parameters on the
-  combined 2017-2022 validation window; predictions cached under
+  combined 2019-2022 validation window; predictions cached under
   `results/_study/predictions`; `utils.config.DEFAULT_SEED`; one selection criterion
   (§3.1) over the scored space.
 - **Promotion state:** open for the fresh experiment cycle; no 2023-2025 holdout

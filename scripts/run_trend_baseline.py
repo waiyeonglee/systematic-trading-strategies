@@ -4,7 +4,7 @@
 The rule path has no fitted model: the signal is ``trend feature > 0`` at each
 weekly bar, the book is ``trend_long_flat`` (inverse-vol weights on the on-signal
 assets, cash otherwise, 4-week rebalance, moomoo commissions, no cost gate). This
-script runs it on the same validation (2017-2022) and test (2023-2025) windows and
+script runs it on the same validation (2019-2022) and test (2023-2025) windows and
 against the same benchmarks (SPY B&H, equal-weight 16) as the fitted-model study,
 so the numbers are directly comparable as the naive rule-based baseline.
 
@@ -34,7 +34,7 @@ from run_backtest import build_panel
 from utils.config import seed_everything
 from utils.paths import RESULTS_DIR
 
-WINDOWS = {"val": ("2017-01-01", "2022-12-31"), "test": ("2023-01-01", "2025-12-31")}
+WINDOWS = {"val": ("2019-01-01", "2022-12-31"), "test": ("2023-01-01", "2025-12-31")}
 PERIODS_PER_YEAR = 52          # weekly bars
 INITIAL_CAPITAL_USD = 100_000.0
 
@@ -125,7 +125,7 @@ def main() -> None:
 
 
 def start_end_text(window: str) -> str:
-    """``"2017-01-01..2022-12-31"`` for a window key."""
+    """``"2019-01-01..2022-12-31"`` for a window key."""
     return f"{WINDOWS[window][0]}..{WINDOWS[window][1]}"
 
 

@@ -48,7 +48,7 @@ The mapping lives in `pipeline.report_phases_for` (`REPORT_TEST_WINDOW` /
 | window | book | used for |
 | --- | --- | --- |
 | `test_*` | the configured book, overlay applied | the run's headline measurement |
-| `validation_*` | the same book on 2017-2022, overlay applied (`selection["overlay_books"]`) | the window that chose the model, reported with the book the joint ranking scored |
+| `validation_*` | the same book on 2019-2022, overlay applied (`selection["overlay_books"]`) | the window that chose the model, reported with the book the joint ranking scored |
 
 Both figure sets are kept (`plots/<arm>/test/`, `plots/<arm>/val/`) so the
 validation result — the number that selected the model — is inspectable next to the

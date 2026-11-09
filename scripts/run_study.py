@@ -5,7 +5,7 @@ There is no separate model-selection phase and no separate book-ablation phase. 
 walk-forward predictions for every (spec, look-ahead, refit cadence) are already
 stored as CSVs under ``results/_study/predictions``; this script replays them through
 every book configuration and ranks the **whole combined space** by net Sharpe on the
-combined validation window (2017-01-01..2022-12-31):
+combined validation window (2019-01-01..2022-12-31):
 
     model spec   20   (4 alphas x 5 elastic-net l1_ratio values)
     combo        11   (rebalance, look-ahead, refit) under look-ahead >= cadence and
@@ -78,7 +78,7 @@ from utils.paths import STUDY_DIR
 
 SEED = DEFAULT_SEED                          # written into every cache entry
 TEST = ("2023-01-01", "2025-12-31")          # single pre-registered draw
-VAL_WINDOW_SLUG = "6y"
+VAL_WINDOW_SLUG = "4y"
 BATCH = 5                                    # candidates per worker task
 
 # (rebalance, look-ahead, refit) combos under the two design rules.
