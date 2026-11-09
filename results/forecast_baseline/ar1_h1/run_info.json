@@ -1,0 +1,19 @@
+{
+  "model": "AR(1): y = a + b*return_Hbar, per ticker, OLS",
+  "target": "fwd_ret_1bar",
+  "refit_every": "QE",
+  "window_train": "5y",
+  "embargo": 1,
+  "min_obs": 40,
+  "periods_per_year": 52,
+  "windows": {
+    "val": [
+      "2017-01-01",
+      "2022-12-31"
+    ],
+    "test": [
+      "2023-01-01",
+      "2025-12-31"
+    ]
+  }
+}

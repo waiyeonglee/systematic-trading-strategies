@@ -87,7 +87,9 @@ SIGNAL_SMA_WINDOW = 40             # weekly bars, ≈ 200-day MA (rule path)
 SIGNAL_MOM_LB = 52                 # weekly bars, ≈ 12-month momentum (rule path)
 # Rule path (trend book): configured trend feature value > 0 -> signal on
 # (pred = +1 / 0 / -1). Kept as the documented reference; the fitted model is the
-# main implementation.
+# main implementation. Measured as the naive baseline on 2017-2022 / 2023-2025 by
+# scripts/run_trend_baseline.py (results/trend_baseline; current_state Step 23,
+# validation_and_ablation.md §5.1c).
 
 # ML path (run_pipeline, mode: selection) — phase-1 hyperparameters.
 # 2026-11-03 grid revision (user request): 4 families on reduced, PER-FAMILY alpha

@@ -350,7 +350,9 @@ trend-following-strategy-v2/
       ADR 09 stack (Step 4).
 - [x] Validation & ablation study: V1 selection + V2 rows executed, byte-identical to
       the reference (Step 5).
-- [ ] Rule path CLI, figures/reporting, promoted-ADR re-measurement — follow-up options.
+- [x] Rule path CLI + baseline measurement — `scripts/run_trend_baseline.py`,
+      results in `results/trend_baseline/` (Step 23). Rule-path figures and a
+      promoted-ADR re-measurement remain follow-ups.
 
 ---
 
@@ -1797,3 +1799,154 @@ figure exists at its final path.
 versus EW and SPY B&H on **both** measured windows (`metrics.cumulative_return()` +
 `pipeline.cumulative_by_window()`, which read the run's own `val_*`/`test_*` series so
 the numbers agree with each draw's `comparison.csv`).
+
+---
+
+## Step 23 — Rule path wired and measured as the naive baseline (2026-11-09)
+
+### Trigger
+Draft feedback: the rule-based trend path was half-referenced — `src/portfolio.py`
+implements `trend_long_flat`, but no numbers existed under `results/`. The assignment's
+§4.3 invites a naive baseline, so the path was measured once rather than demoted to an
+unmeasured stub.
+
+### Audit — what existed, what did not
+- **Present (book layer):** `build_trend_portfolio` — one-bar decision lag, inverse-vol
+  weights on the on-signal assets, cash otherwise, fixed 4w cadence, moomoo
+  commissions, no cost gate; `trend_target_weights`; the `trend_long_flat` /
+  `trend_long_short` entries in `STRATEGIES`.
+- **Missing (decision + runner):** `TREND_SIGNAL_COLUMNS` (`sma40` →
+  `trend_sma40_ratio`, `mom52` → `trend_mom52`) was declared in `src/features.py` and
+  `agents/model_design.py` but consumed nowhere. Nothing turned a trend feature into
+  the `pred` column the book requires, and no script could run it —
+  `scripts/run_backtest.py` hard-codes `strategy="forecast_vol_scaled"` and
+  `run_pipeline` always walks a fitted-model grid. No tests. So the path was
+  **implemented at the book layer, not implemented end to end**.
+
+### Actions
+- `src/features.py` → `trend_rule_signals(panel, rule)`: `pred = +1` where the
+  configured trend feature is `> 0`, else `0` (`shorting=True` maps the off-signal to
+  `-1`, so the registered `trend_long_short` variant is drivable too); no fitted model,
+  no estimation window.
+- `scripts/run_trend_baseline.py`: runs both rules through `build_trend_portfolio` on
+  the same 2017-2022 validation and 2023-2025 test windows, with the reference book
+  (24w vol, 4w rebalance, moomoo, 0 bps) and volatility seeded only from bars before
+  each window. Writes `results/trend_baseline/<rule>/{val,test}/`
+  (`comparison.csv`, `strategy.csv`, `periods.csv`, `series.csv`) plus `summary.csv` and
+  `run_info.json`.
+- `tests/test_trend_signals.py`: mapping, per-rule column, shorting variant,
+  unknown-rule and missing-column errors (5 tests).
+- Command: `python scripts/run_trend_baseline.py`.
+
+### Measured (net of moomoo commissions, no vol-target overlay)
+| rule | window | Sharpe | ann return | ann vol | maxDD | total |
+| --- | --- | --- | --- | --- | --- | --- |
+| sma40 | val 2017-2022 | 0.667 | 6.51% | 10.27% | −19.61% | +46.18% |
+| sma40 | test 2023-2025 | 0.922 | 6.97% | 7.63% | −6.54% | +20.35% |
+| mom52 | val 2017-2022 | 0.425 | 3.91% | 10.29% | −19.61% | +25.98% |
+| mom52 | test 2023-2025 | 1.266 | 10.18% | 7.91% | −7.52% | +30.56% |
+
+Next to the other measured books on the same windows:
+
+| book | val Sharpe | test Sharpe | test total | test maxDD |
+| --- | --- | --- | --- | --- |
+| ML joint winner (`rff` · abs4 · 4w · QE, w12/vt20) | 1.336 | 0.160 | +2.69% | −10.42% |
+| best refit arm (ME, w08/vt10) | 1.185 | 0.204 | +3.70% | −9.87% |
+| **sma40 long/flat** | **0.667** | **0.922** | **+20.35%** | **−6.54%** |
+| **mom52 long/flat** | **0.425** | **1.266** | **+30.56%** | **−7.52%** |
+| EW-16 B&H | 0.699 | 1.314 | +38.42% | −7.79% |
+| SPY B&H | 0.657 | 1.523 | +78.86% | −16.88% |
+
+**Gate verdicts on 2023-2025** (bar: Sharpe ≥ 1.3145 = weaker benchmark, maxDD ≥
+−7.79% = better benchmark): both rules **fail on Sharpe** (0.922 / 1.266, mom52 short
+by 0.048) and **pass on drawdown**. Neither is promoted — the rule is a baseline, not a
+candidate, and the ML promotion path is unchanged.
+
+### Reading
+- The rule is a fixed, pre-declared specification: no fitted parameters and no
+  selection, so its test numbers are a clean out-of-sample benchmark.
+- The ML winner's 1.336 is the **maximum of 58,590 candidates** (median 0.406, p90
+  0.682, p99 0.904; only 0.5% score above 1.0), i.e. a tail order statistic, while its
+  0.160 is what the same book delivered out of sample. The rule's validation score sits
+  near the candidate median and its test score is *higher* than its validation score —
+  the opposite of the winner's decay. On this window the fitted model added nothing
+  over the naive rule.
+- Do not over-read it: one test window, both books still lose to EW-16, and the trend
+  book is a long/flat, ~8%-vol book rather than a like-for-like replacement for the
+  long/short ML book. Two small level differences are deliberate: the rule holds cash
+  at 0% (design: no financing modelled) whereas the ML book credits 3% on the de-risked
+  sleeve, and both books are flat for the first four weeks of each window because the
+  one-bar decision lag has no prior bar inside the slice.
+- Because the rule *is* a benchmark, this is a third measurement of 2023-2025 and must
+  be counted in the remeasurement tally (README already records two).
+
+### Follow-up
+- The report can cite the rule path as **measured** in the §4.3 baseline slot with the
+  numbers above; no §11 "implemented-but-unmeasured" caveat is needed.
+- If the team still prefers to demote it, the demotion is now an explicit choice rather
+  than an omission; nothing in the pipeline depends on the rule path.
+- Figures for the baseline were not produced (tables only); add them from `series.csv`
+  if the report needs a cumulative-return panel.
+
+## Step 24 — AR(1) forecast baseline implemented and measured (2026-11-09)
+
+### Trigger
+Discussion of strategy vs forecast baselines: SMA40/MOM52 are **strategy** baselines
+(a rule turned into a book) and cannot fill §4.3's "naive forecast → OOS R²" slot. The
+user asked for the AR(1) baseline to be implemented, executed and interpreted.
+
+### Design
+- **Regressor must be trailing.** `y_t = a + b * return_Hbar`, where the regressor is
+  the return over `t-H..t` (known at the close of `t`) and `y_t = fwd_ret_Hbar` is
+  realised over `t+1..t+H+1`. Using the lagged *target* as the regressor would look
+  ahead H bars, so it was rejected. For H=1 this is the textbook AR(1) on weekly
+  returns; H=4 is the one-lag model on the 4-week return series, matching the ranking
+  winner's horizon.
+- Per-ticker OLS with intercept; refit blocks mirror `models.walk_forward_predict`:
+  QE blocks, training dates strictly before the block, last `embargo = H` dates dropped
+  (the last kept label is realised exactly at the first prediction date), rolling
+  window 5y = 260 bars. Below `min_obs = 40` pairs the slope is fixed at 0 and the
+  ticker's training mean is used.
+- `pred_mean` is the AR(0) historical-mean forecast, so the report can quote OOS R²
+  against the mean (Campbell-Thompson) as well as against zero (project convention).
+- Files: `src/baselines.py`, `scripts/run_forecast_baseline.py`,
+  `tests/test_baselines.py` (exact slope recovery, no look-ahead under a future-target
+  shock, mean fallback below `min_obs`, R² identity). Suite: **26 passed**.
+- Command: `python scripts/run_forecast_baseline.py --horizon 4` (and `--horizon 1`);
+  output under `results/forecast_baseline/ar1_h{4,1}/`.
+
+### Measured
+| forecast | window | OOS R² vs 0 | OOS R² vs mean | rank IC (t) | direction acc |
+| --- | --- | --- | --- | --- | --- |
+| AR(1) H=4 | val 2017-2022 | 0.0222 | 0.0132 | 0.112 (5.49) | 57.6% |
+| AR(1) H=4 | test 2023-2025 | 0.0487 | −0.0012 | 0.069 (2.45) | 56.7% |
+| historical mean H=4 | val / test | 0.0091 / 0.0498 | 0 | — | — |
+| AR(1) H=1 | val / test | −0.0069 / 0.0076 | −0.0087 / −0.0017 | 0.034 (1.68) / 0.053 (1.97) | 53.8% / 55.0% |
+| ML winner H=4 | val / test | −0.1243 / −0.0387 | — | 0.045 (2.29) / 0.097 (3.75) | 54.7% / 52.1% |
+
+H=4 slopes: mean −0.080, median −0.074, 95% of refits negative. H=1 slopes: mean
+0.0006, 34% negative.
+
+### Reading
+- The AR(1)'s R² against zero is essentially the **unconditional mean**: the
+  historical-mean forecast alone scores 0.0091 / 0.0498, and in test the AR(1) is
+  slightly *below* it (−0.0012). The negative slope is a real but tiny four-week
+  reversal; it contributes nothing out of sample.
+- At H=1 the slope is ~0 and both R² columns are ≈0/negative: weekly returns are
+  white noise here, so the H=4 result is drift, not autocorrelation. This is the
+  cleanest statement §4.3 can make — a naive forecast has no conditional edge.
+- The ML winner is worse than zero on **levels** (−0.1243 val, −0.0387 test) but has
+  the best test rank IC (0.097). The book consumed cross-sectional ranking and
+  volatility, not calibrated return levels; quoting only R² would make a
+  one-parameter mean-reversion model look superior to the whole pipeline. Report both.
+- Do not over-read: 16 ETFs, weekly, one span; the AR(1)'s validation IC (0.112) is
+  mostly persistent per-ticker drift carried by `pred_mean` (mean-only IC 0.091 val /
+  0.072 test), not timing skill, and the full model decays to 0.069 in test.
+
+### Follow-up
+- §4.3 now has a genuine forecast baseline to cite; no "implemented-but-unmeasured"
+  caveat is needed for it either.
+- When the report quotes the ML model's OOS R², quote it against the historical mean
+  if that number is produced, not only against zero — otherwise the baseline comparison
+  flatters the AR(1) and understates how badly calibrated the ML levels were.
+- `--horizon 12` is supported by the same script if the report needs the 12-bar case.

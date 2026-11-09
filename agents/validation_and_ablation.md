@@ -172,7 +172,8 @@ newly stored or degenerate set plus a `stored / degenerate / cached` summary.
 
 ## 5. Measured record
 
-Filled after each executed ranking. The current record is §5.1.
+Filled after each executed ranking. The current record is §5.1; the fixed rule-based
+baseline is §5.1c; the forecast-space AR(1) baseline is §5.1d.
 
 ### 5.1 Executed — joint ranking, 45-cell book space (2026-11-04)
 
@@ -249,6 +250,71 @@ the arm is a validation-window choice, so this table is descriptive only.
 and drew 0.2906 net Sharpe on the test window — the same null conclusion. Its folder
 and CSV were replaced by the 45-cell run above; the numbers survive in
 `agents/current_state.md` Steps 13-15.
+
+### 5.1c Rule-based trend baseline — SMA40 / MOM52 (2026-11-09)
+
+Not a ranking candidate: a fixed, pre-declared reference book (`pred = +1` when the
+trend feature is > 0, else flat; inverse-vol weights, 4w cadence, moomoo, no cost gate,
+no vol-target overlay). It exists to answer "does the naive rule do as well as the
+selected model?" out of sample. Command: `python scripts/run_trend_baseline.py`;
+tables under `results/trend_baseline/<rule>/{val,test}/`.
+
+| book | val Sharpe | test Sharpe | test ann return | test maxDD | test total |
+| --- | --- | --- | --- | --- | --- |
+| `sma40` long/flat | 0.667 | 0.922 | 6.97% | −6.54% | +20.35% |
+| `mom52` long/flat | 0.425 | 1.266 | 10.18% | −7.52% | +30.56% |
+| ML joint winner (QE, w12/vt20) | 1.336 | 0.160 | 0.97% | −10.42% | +2.69% |
+| EW-16 B&H | 0.699 | 1.314 | 12.55% | −7.79% | +38.42% |
+| SPY B&H | 0.657 | 1.523 | 23.54% | −16.88% | +78.86% |
+
+Both rules fail the §1.2 gate on Sharpe (bar 1.3145) and pass on drawdown (bar
+−7.79%); `mom52` is 0.048 Sharpe short. Neither is promoted. The reading: the winner's
+1.336 is the max of 58,590 candidates (median 0.406, p90 0.682, p99 0.904, 0.5% above
+1.0), so validation ranking is an order statistic; the rule is fixed, and its test
+score is *higher* than its validation score while the winner's collapses. This is a
+diagnostic of selection noise, not a claim that trend beats ML in general — one
+window, and both books lose to EW-16.
+
+### 5.1d AR(1) forecast baseline (2026-11-09)
+
+§4.3's optional naive forecast baseline, in prediction space only: no positions and
+no costs. Per ticker, an OLS one-lag model of the H-bar forward return on the
+**trailing** H-bar return, `y_t = a + b * return_Hbar`, refit quarterly on a rolling
+5y window with embargo = H, so every training label is realised before the first
+prediction date. `pred_mean` is the AR(0) comparison forecast (each ticker's
+training-window mean). Command:
+`python scripts/run_forecast_baseline.py --horizon 4`; `--horizon 1` is the
+non-overlapping weekly case. Tables under `results/forecast_baseline/ar1_h{1,4}/`.
+
+| forecast | window | OOS R² vs 0 | OOS R² vs hist. mean | rank IC (t) | direction acc |
+| --- | --- | --- | --- | --- | --- |
+| AR(1), H=4 | val 2017-2022 | 0.0222 | 0.0132 | 0.112 (5.49) | 57.6% |
+| AR(1), H=4 | test 2023-2025 | 0.0487 | −0.0012 | 0.069 (2.45) | 56.7% |
+| historical mean, H=4 | val 2017-2022 | 0.0091 | 0 (by construction) | — | — |
+| historical mean, H=4 | test 2023-2025 | 0.0498 | 0 (by construction) | — | — |
+| AR(1), H=1 | val 2017-2022 | −0.0069 | −0.0087 | 0.034 (1.68) | 53.8% |
+| AR(1), H=1 | test 2023-2025 | 0.0076 | −0.0017 | 0.053 (1.97) | 55.0% |
+| ML winner, H=4 | val 2017-2022 | −0.1243 | — | 0.045 (2.29) | 54.7% |
+| ML winner, H=4 | test 2023-2025 | −0.0387 | — | 0.097 (3.75) | 52.1% |
+
+- The H=4 slope is negative at 95% of refits (mean −0.080, median −0.074): a mild
+  four-week reversal, not momentum. Its apparent R² against zero is the
+  unconditional mean — the historical-mean forecast alone scores 0.0091 / 0.0498 on
+  the two windows, and the AR(1) is *below* that in test (R² vs mean −0.0012). No
+  conditional information survives out of sample.
+- H=1 confirms it: slope ≈ 0 (mean 0.0006), R² ≈ 0 and negative against the mean. At
+  weekly frequency these returns are effectively white noise, so the H=4 "edge" is
+  drift, not autocorrelation.
+- The selected ML model's level forecasts are *worse than zero* on both windows
+  (−0.1243 / −0.0387), while its test rank IC (0.097) is the highest in the table. The
+  book monetised cross-sectional ranking and volatility sizing, not calibrated levels;
+  an R²-only comparison would rank a one-parameter mean-reversion model above the
+  whole pipeline, which is why both forecast metrics are reported.
+- Caveats: 16 ETFs, weekly bars, one 2017-2025 span. The AR(1) validation IC
+  (0.112) is largely persistent per-ticker drift differences carried by `pred_mean` —
+  the mean forecast alone ranks at IC 0.091 (val) / 0.072 (test) — so it is a static
+  cross-sectional bet, not time-varying timing skill, and it decays to 0.069 in test
+  (below what `pred_mean` alone achieves there).
 
 ### 5.2 Removed — regime-stratified selection (2026-11-04)
 
