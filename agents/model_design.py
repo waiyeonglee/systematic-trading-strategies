@@ -12,7 +12,7 @@ then replays them through every book configuration and ranks the whole combined 
 of **model x (rebalance, look-ahead, refit) x book** on a single validation window
 (2017-01-01..2022-12-31):
 
-    20 specs x 14 combos x 45 book cells = 12,600 candidates, best net Sharpe wins.
+    20 specs x 11 combos x 45 book cells = 9,900 candidates, best net Sharpe wins.
 
 There is no separate model-selection phase and no separate ablation phase. The cache
 lives under results/_study/predictions. Seed `SEED` (§5) is fixed everywhere. The
@@ -116,15 +116,15 @@ FREQ_TO_BARS = {"daily": 1, "weekly": 1, "4w": 4, "12w": 12}
 FREQ_LA_PAIRS = [("weekly", 1), ("weekly", 4), ("weekly", 12),
                  ("4w", 4), ("4w", 12),
                  ("12w", 12)]
-# Model refit cadence — V1 selection dimension (2026-11-02, Step 6 follow-up 2):
-# refit weekly / monthly / quarterly. Design rule (an economy rule, NOT statistical
+# Model refit cadence — V1 selection dimension (2026-11-09 user request):
+# refit monthly / quarterly only. Design rule (an economy rule, NOT statistical
 # validity like look-ahead >= frequency): refit is **no more frequent than the
 # acting cadence** — REFIT_TO_BARS[refit] >= FREQ_TO_BARS[rebalance]. Refits finer
 # than the cadence fit models whose intermediate predictions the book never uses;
-# refit == cadence captures the freshness. Valid combos: W-FRI x {weekly pairs} (3),
-# ME x {1w, 4w cadences} (5), QE x {all 6} -> 14 combos.
-REFIT_OPTIONS = ("W-FRI", "ME", "QE")     # weekly / monthly / quarterly
-REFIT_TO_BARS = {"W-FRI": 1, "ME": 4, "QE": 12}
+# refit == cadence captures the freshness. Valid combos: ME x {1w, 4w cadences} (5),
+# QE x {all 6} -> 11 combos.
+REFIT_OPTIONS = ("ME", "QE")     # monthly / quarterly
+REFIT_TO_BARS = {"ME": 4, "QE": 12}
 # Label timing (feature_engineering.md §3): features at close t, enter at close t+1,
 # hold H bars; label = price[t+H+1] / price[t+1] - 1. The 12-week target reaches
 # t+13, so its final labelled date is 2025-09-26; benchmark bars run to 2025-12-31.
@@ -210,12 +210,12 @@ SUCCESS_MAXDD_LE_BENCHMARK = True
 # walk-forward predictions for every (spec, look-ahead, refit) are cached as CSVs;
 # the study replays them through every book configuration and ranks the whole space
 # by net Sharpe on the combined 2017-2022 window (validation_and_ablation.md §3):
-#   20 specs x 14 valid (rebalance, look-ahead, refit) combos x 45 book cells
-#   = 12,600 candidates, ONE ranking, degenerate cells excluded from the win.
+#   20 specs x 11 valid (rebalance, look-ahead, refit) combos x 45 book cells
+#   = 9,900 candidates, ONE ranking, degenerate cells excluded from the win.
 # One selection criterion over that scored space (§3.1 of the protocol doc): the
 # highest net Sharpe wins.
 # Valid combos obey look-ahead >= rebalance cadence AND refit_interval >= rebalance
-# cadence: W-FRI x {weekly pairs} (3), ME x {1w, 4w cadences} (5), QE x {all 6} (14).
+# cadence: ME x {1w, 4w cadences} (5), QE x {all 6} (11).
 # Walk-forward mechanics fixed (not tuned): rolling 5y, embargo = horizon, seed =
 # SEED (§5, mirror of utils.config.DEFAULT_SEED).
 # The winner is a candidate, not a headline; it still needs the pre-registered ADR
@@ -224,7 +224,7 @@ SUCCESS_MAXDD_LE_BENCHMARK = True
 # of the forty-five cells are duplicates (inert lever cap with the overlay off), so a
 # candidate runs 40 simulations; the whole ranking is ~5 min on 8 workers, all model
 # fits cached.
-RANK_CANDIDATES = 12_600           # 20 specs x 14 combos x 45 book cells
+RANK_CANDIDATES = 9_900            # 20 specs x 11 combos x 45 book cells
 BOOK_SIMULATIONS = 40              # distinct books per candidate (see §7)
 
 # Headline (None until a ranking winner passes the §1.2 gate on the test window).

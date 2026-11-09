@@ -29,7 +29,7 @@ from utils.config import DEFAULT_SEED, duration_slug, duration_to_bars, periods_
 
 from plots import plot_run  # noqa: E402  (matplotlib is imported by this module)
 
-REFIT_SLUGS = {"D": "drefit", "W-FRI": "wkrefit", "ME": "mrefit", "QE": "qrefit"}
+REFIT_SLUGS = {"ME": "mrefit", "QE": "qrefit"}
 
 
 def _vol_target_segment(params: ForecastVolParams) -> str:

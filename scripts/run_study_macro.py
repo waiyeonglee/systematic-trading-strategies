@@ -6,11 +6,11 @@ ranking over model x combo x book), but on a different design:
 
     features   19 firm features x (5 macro + const) = 114 columns  (src/macro.py)
     specs      elastic net only, alpha {1e-4..1e-1} x l1_ratio {0, .25, .5, .75, 1} = 20
-    combos     14  (rebalance, look-ahead, refit) under look-ahead >= cadence and
+    combos     11  (rebalance, look-ahead, refit) under look-ahead >= cadence and
                    refit_interval >= cadence
     books      45  (vol window x vol target x leverage cap, rf sleeve 3%)
     ------------
-    candidates 20 x 14 x 45 = 12,600
+    candidates 20 x 11 x 45 = 9,900
 
 Split (calendar-anchored, fixed before the run)::
 
@@ -28,7 +28,7 @@ the v2 study's figures. Draws live under
 Usage:
     python scripts/run_study_macro.py rank
     python scripts/run_study_macro.py cache                  # fit only missing predictions
-    python scripts/run_study_macro.py cache --refits W-FRI   # one refit arm of the cache
+    python scripts/run_study_macro.py cache --refits ME      # one refit arm of the cache
     python scripts/run_study_macro.py draw                   # one test draw per refit arm
     python scripts/run_study_macro.py rank --refits QE      # quarterly arm only (~8 min)
     python scripts/run_study_macro.py rank --jobs 4
@@ -177,7 +177,7 @@ def run_cache(models: str | None, combos: str | None, refits: str | None,
               refresh: bool, jobs: int) -> None:
     """Fit every missing walk-forward prediction set of the requested space.
 
-    The 14 combos map onto 9 ``(look-ahead, refit)`` forecast groups, so only those 9
+    The 11 combos map onto 6 ``(look-ahead, refit)`` forecast groups, so only those 6
     groups are filled: combos that differ only in the rebalance cadence share the same
     cached predictions. Nothing is ranked here; run ``rank`` afterwards.
     """
@@ -230,8 +230,7 @@ def run_rank(models: str | None, combos: str | None, refits: str | None, refresh
 
     The winner is the highest net Sharpe on the validation window.
 
-    ``refits`` restricts the refit cadences (``"QE"`` = the quarterly arm only, which
-    is ~85% cheaper than including the 208 weekly refits per prediction set).
+    ``refits`` restricts the refit cadences (``"QE"`` = the quarterly arm only).
     """
     specs = _specs(models)
     pairs = _parse_combos(combos, _combos(refits))
@@ -357,7 +356,7 @@ def plots_dir() -> Path:
 
 
 def arm_slug(refit: str) -> str:
-    """Folder name of a refit arm, e.g. ``"W-FRI"`` -> ``"w-fri"``."""
+    """Folder name of a refit arm, e.g. ``"QE"`` -> ``"qe"``."""
     return refit.lower()
 
 
@@ -498,9 +497,8 @@ def main() -> None:
                         help="comma-separated la<h>_<cadence>_refit<X> (subset runs)")
     parser.add_argument("--refits", default=None,
                         help="comma-separated refit cadences to keep, e.g. QE "
-                             "(default: all of W-FRI,ME,QE; the weekly arm costs "
-                             "~85%% of the prediction compute). Also selects which "
-                             "arms `draw` measures")
+                             "(default: all of ME,QE). Also selects which arms "
+                             "`draw` measures")
     parser.add_argument("--study-dir", default=None,
                         help="study output root (default: results/_study_macro)")
     parser.add_argument("--jobs", type=int, default=0,
@@ -509,8 +507,7 @@ def main() -> None:
                         help="recompute cached predictions instead of reusing them")
     parser.add_argument("--grid", default="enet", choices=("enet", "full"),
                         help="model space: enet = the 20-spec elastic-net sweep "
-                             "(default, the archived macro study); full = the same "
-                             "93-spec four-family grid as the base study")
+                             "(default); full = the active base-study grid")
     args = parser.parse_args()
 
     GRID_ENTRIES = FULL_GRID_ENTRIES if args.grid == "full" else ENET_ONLY_GRID

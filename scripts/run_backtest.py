@@ -11,11 +11,11 @@ so ``l1_ratio=0`` covers the Ridge-like case and ``l1_ratio=1`` covers the
 Lasso-like case. The grid is {1e-4 .. 0.1} x l1_ratio {0, .25, .5, .75, 1}
 -> 20 specs;
 look-ahead {1, 4, 12} weeks x rebalance cadence {weekly=1w, 4w, 12w} under the rule **look-ahead >=
-rebalance frequency**, x model refit cadence {W-FRI, ME, QE} under the rule
+rebalance frequency**, x model refit cadence {ME, QE} under the rule
 **refit_interval >= prediction_interval** (both enforced in ``default_config``).
 V1 no longer exists as a separate stage: the study ranks model x look-ahead x
 frequency x refit **x book** jointly on the combined validation window
-(20 specs x 14 valid combos x 45 book cells = 12,600 cells, see
+(20 specs x 11 valid combos x 45 book cells = 9,900 cells, see
 ``scripts/run_study.py``). This CLI measures **one pinned cell** (validation + the
 single test draw); it does not re-rank the space.
 
@@ -76,16 +76,15 @@ FREQ_LA_PAIRS = [("weekly", 1), ("weekly", 4), ("weekly", 12),
                  ("12w", 12)]
 
 # Model refit cadence -> approximate bars, and a dimension of the ranking grid
-# (2026-11-02, Step 6 follow-up 2): refit weekly / monthly / quarterly.
+# (2026-11-09 user request): refit monthly / quarterly only.
 # Design rule: refit is **no more frequent than the acting cadence** —
-# refit_interval >= prediction_interval (W-FRI=1, ME=4, QE=12 bars vs cadence
+# refit_interval >= prediction_interval (ME=4, QE=12 bars vs cadence
 # 1/4/12), analogous in spirit (an economy rule, NOT statistical validity) to
 # look-ahead >= frequency: refits finer than the cadence fit models whose
 # intermediate predictions the book never uses; refit == cadence captures the
-# freshness. Valid combos: W-FRI x weekly pairs (3), ME x 1w/4w cadences (5),
-# QE x all pairs (6) -> 14.
-REFIT_TO_BARS = {"D": 1, "W-FRI": 1, "ME": 4, "QE": 12}
-REFIT_OPTIONS = ("W-FRI", "ME", "QE")      # weekly / monthly / quarterly
+# freshness. Valid combos: ME x 1w/4w cadences (5), QE x all pairs (6) -> 11.
+REFIT_TO_BARS = {"ME": 4, "QE": 12}
+REFIT_OPTIONS = ("ME", "QE")      # monthly / quarterly
 
 
 def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
@@ -130,8 +129,8 @@ def default_config(horizon: int, vol_target: bool | float | None,
     """Pipeline settings with the fixed v2 window.
 
     ``model`` pins a single spec (``mode: single``, a single ranked cell); ``None``
-    keeps the 93-spec grid. ``refit_every`` is a ranking-grid dimension (weekly /
-    monthly / quarterly), default QE. ``vol_target``
+    keeps the 20-spec grid. ``refit_every`` is a ranking-grid dimension (monthly /
+    quarterly), default QE. ``vol_target``
     accepts a float (annualized target, e.g. ``0.20`` for 20%), ``True`` (default
     10%), or ``False`` / ``None`` (overlay off). ``vol_min_periods`` is clamped to
     the window so short vol windows (4w/8w/12w) stay valid.
@@ -150,6 +149,8 @@ def default_config(horizon: int, vol_target: bool | float | None,
     if f"absolute{horizon}" not in MODEL_TARGETS:
         raise ValueError(f"invalid look-ahead horizon {horizon}; use one of "
                          f"{sorted(k[8:] for k in MODEL_TARGETS)}")
+    if refit_every not in REFIT_TO_BARS:
+        raise ValueError(f"invalid refit cadence {refit_every!r}; use one of {REFIT_OPTIONS}")
     if FREQ_TO_BARS[rebalance] > horizon:
         raise ValueError(
             f"look-ahead must be >= rebalance frequency: horizon {horizon} "
@@ -190,9 +191,9 @@ def main() -> None:
                              "combined 2017-2022 study window)")
     parser.add_argument("--window-train", default="5y",
                         help="rolling training window (default: 5y)")
-    parser.add_argument("--refit-every", default="QE", choices=("D", "W-FRI", "ME", "QE"),
+    parser.add_argument("--refit-every", default="QE", choices=("ME", "QE"),
                         help="refit cadence (default: QE; ranking dimension: "
-                             "W-FRI|ME|QE, refit must be no more frequent than "
+                             "ME|QE, refit must be no more frequent than "
                              "--rebalance)")
     parser.add_argument("--horizon", type=int, default=12, choices=(1, 4, 12),
                         help="label look-ahead in bars, absolute1/4/12 (default: 12)")

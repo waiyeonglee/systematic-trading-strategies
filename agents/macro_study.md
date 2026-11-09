@@ -73,21 +73,17 @@ Verified on the built panel (`macro_state(..., lag_months=1)`):
 | Dimension | Values | Count |
 | --- | --- | --- |
 | model | elastic net, alpha {1e-4, 1e-3, 1e-2, 1e-1} x `l1_ratio` {0, 0.25, 0.5, 0.75, 1} | **20** |
-| combo | (rebalance, look-ahead) pairs under look-ahead >= cadence, refit **QE only** | **6** |
+| combo | (rebalance, look-ahead) pairs under look-ahead >= cadence, refit **ME or QE** | **11** |
 | book | vol window {4,8,12,24,48}w x target {20%,10%,off} x cap {1.0,2.0,3.0}, rf 3% | **45** |
-| | **candidates** | **5,400** |
+| | **candidates** | **9,900** |
 
-The refit cadence is restricted with `--refits` (default: all of `W-FRI,ME,QE`). The
-weekly-refit arm is **208 fits per prediction set** versus 48 (`ME`) and 16 (`QE`), so
-it costs ~85% of the prediction compute for 3 of the 14 combos; it is dropped here
-because QE is the cadence that won every v2 draw and this study is meant to iterate
-fast. Adding it back later is a `--refits W-FRI,ME,QE` re-rank — the completed
-prediction sets stay cached.
+The refit cadence is restricted with `--refits` (default: all of `ME,QE`). Weekly
+refits are removed from the active study space; monthly and quarterly refits remain.
 
 `python scripts/run_study_macro.py cache [--refits ...]` fits the **missing** prediction
 sets of that space and nothing else (no book simulation, no ranking). Combos that share
-a `(look-ahead, refit)` group collapse to one task, so the 14 combos are 9 forecast
-groups: `weekly_la{1,4,12}_refit{W-FRI,ME,QE}`. Run it after widening `--refits`, then
+a `(look-ahead, refit)` group collapse to one task, so the 11 combos are 6 forecast
+groups: `weekly_la{1,4,12}_refit{ME,QE}`. Run it after changing `--refits`, then
 re-rank; `--models` restricts the specs and `--refresh-cache` refits everything.
 
 `python scripts/run_study_macro.py draw [--refits ...]` draws the best validation

@@ -8,13 +8,13 @@ every book configuration and ranks the **whole combined space** by net Sharpe on
 combined validation window (2017-01-01..2022-12-31):
 
     model spec   20   (4 alphas x 5 elastic-net l1_ratio values)
-    combo        14   (rebalance, look-ahead, refit) under look-ahead >= cadence and
+    combo        11   (rebalance, look-ahead, refit) under look-ahead >= cadence and
                       refit_interval >= cadence
     book         45   (vol window 4/8/12/24/48w x vol target 20%/10%/off x leverage
                       cap 1.0/2.0/3.0, rf sleeve fixed at 3%; caps 2.0/3.0 pay a
                       6.8% ann. borrow fee)
     ---------------
-    candidates   12,600
+    candidates   9,900
 
 Only the book simulation runs — no refitting — so a full ranking is minutes, and the
 predictions are reused byte-identically across every book cell of a candidate. Cells
@@ -26,7 +26,7 @@ entry and in the ranking/winner files; a cache entry written under another seed 
 recomputed. All book cells of a candidate share one 48-bar volatility warmup.
 
 Outputs (``results/_study``):
-    validation_ranking.csv   one row per candidate (12,600), sorted by net Sharpe
+    validation_ranking.csv   one row per candidate (9,900), sorted by net Sharpe
     validation_winner.json   the top row plus its provenance
     run_parameters.json      the space definition actually searched
     draws/<arm>/<run_tag>/   test draw of an arm's best candidate (tables + series)
@@ -318,7 +318,7 @@ def plots_dir() -> Path:
 
 
 def arm_slug(refit: str) -> str:
-    """Folder name of a refit arm, e.g. ``"W-FRI"`` -> ``"w-fri"``."""
+    """Folder name of a refit arm, e.g. ``"QE"`` -> ``"qe"``."""
     return refit.lower()
 
 
@@ -457,8 +457,8 @@ def main() -> None:
     parser.add_argument("--refresh-cache", action="store_true",
                         help="recompute cached predictions instead of reusing them")
     parser.add_argument("--refits", default=None,
-                        help="comma-separated refit cadences for `draw`, "
-                             "e.g. W-FRI,ME,QE (default: every arm in the ranking)")
+                        help="comma-separated refit arms to draw/test, "
+                             "e.g. ME,QE (default: every arm in the ranking)")
     args = parser.parse_args()
 
     if args.study_dir:

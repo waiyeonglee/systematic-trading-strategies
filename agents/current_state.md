@@ -1987,9 +1987,11 @@ Lasso-like case.
 
 - Active model grid: 4 alpha values x 5 Elastic Net `l1_ratio` values = **20**
   specs.
-- Active joint ranking size: 20 specs x 14 valid `(rebalance, look-ahead, refit)`
-  combos x 45 book cells = **12,600** candidates.
+- Active refit frequencies: monthly (`ME`) and quarterly (`QE`) only; weekly
+  (`W-FRI`) refits are removed from the active search.
+- Active joint ranking size: 20 specs x 11 valid `(rebalance, look-ahead, refit)`
+  combos x 45 book cells = **9,900** candidates.
 - RFF-specific fields (`rff_dim`, `gamma`) were removed from model specs, cache
   provenance, study rows, winner metadata, run parameters, and coefficient reporting.
-- Earlier RFF/Ridge/Lasso family notes remain historical provenance only and are
-  stale for any experiment regenerated after this reset.
+- Earlier RFF/Ridge/Lasso family and weekly-refit notes remain historical provenance
+  only and are stale for any experiment regenerated after this reset.

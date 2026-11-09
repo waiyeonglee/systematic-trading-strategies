@@ -96,12 +96,12 @@ python scripts/run_backtest.py --test-start 2020-01-01 --test-end 2022-12-31 --w
 # design rules (enforced in default_config):
 #   look-ahead must be >= rebalance frequency: weekly(1w) x {1,4,12} · 4w x {4,12} · 12w x {12}
 #   refit must be no more frequent than the cadence (refit_interval >= prediction_interval):
-#   W-FRI x weekly pairs (3) · ME x {1w,4w cadences} (5) · QE x all pairs (6) -> 14 combos
+#   ME x {1w,4w cadences} (5) · QE x all pairs (6) -> 11 combos
 
 python scripts/run_study.py rank                # ONE joint ranking over the combined
-                                                # space: 20 specs x 14 (rebalance,
+                                                # space: 20 specs x 11 (rebalance,
                                                 # look-ahead, refit) combos x 45 book
-                                                # cells = 12,600 candidates on
+                                                # cells = 9,900 candidates on
                                                 # 2017-2022, best net Sharpe wins
                                                 # -> results/_study/validation_ranking.csv
                                                 # (~3-4 min on 8 workers; the model fits
@@ -130,12 +130,12 @@ python scripts/build_features_macro.py          # 19 firm x (5 macro + const) = 
                                                 # -> data/features/weekly/features_macro.csv
                                                 # (git-ignored, inspection only)
 python scripts/run_study_macro.py rank          # macro-interaction study: 20 enet specs x
-                                                # 6 QE combos x 45 books = 5,400 candidates
+                                                # 11 ME/QE combos x 45 books = 9,900 candidates
                                                 # on 2019-2022 (train 2011-2018, 8y rolling)
                                                 # -> results/_study_macro/validation_ranking.csv
 python scripts/run_study_macro.py cache         # fit only the missing prediction sets
-                                                # (9 (look-ahead, refit) forecast groups)
-python scripts/run_study_macro.py rank --refits W-FRI,ME,QE   # add the costlier refit arms
+                                                # (6 (look-ahead, refit) forecast groups)
+python scripts/run_study_macro.py rank --refits QE            # quarterly arm only
 python scripts/run_study_macro.py draw          # one 2023-2025 draw per refit arm
                                                 # -> results/_study_macro/draws/<arm>/
 python scripts/run_study_macro.py test          # single draw of the overall winner
