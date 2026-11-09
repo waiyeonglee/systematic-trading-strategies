@@ -7,14 +7,14 @@ stored as CSVs under ``results/_study/predictions``; this script replays them th
 every book configuration and ranks the **whole combined space** by net Sharpe on the
 combined validation window (2017-01-01..2022-12-31):
 
-    model spec   21   (5 ridge + 4 lasso + 12 enet)
+    model spec   20   (4 alphas x 5 elastic-net l1_ratio values)
     combo        14   (rebalance, look-ahead, refit) under look-ahead >= cadence and
                       refit_interval >= cadence
     book         45   (vol window 4/8/12/24/48w x vol target 20%/10%/off x leverage
                       cap 1.0/2.0/3.0, rf sleeve fixed at 3%; caps 2.0/3.0 pay a
                       6.8% ann. borrow fee)
     ---------------
-    candidates   13,230
+    candidates   12,600
 
 Only the book simulation runs — no refitting — so a full ranking is minutes, and the
 predictions are reused byte-identically across every book cell of a candidate. Cells
@@ -26,7 +26,7 @@ entry and in the ranking/winner files; a cache entry written under another seed 
 recomputed. All book cells of a candidate share one 48-bar volatility warmup.
 
 Outputs (``results/_study``):
-    validation_ranking.csv   one row per candidate (13,230), sorted by net Sharpe
+    validation_ranking.csv   one row per candidate (12,600), sorted by net Sharpe
     validation_winner.json   the top row plus its provenance
     run_parameters.json      the space definition actually searched
     draws/<arm>/<run_tag>/   test draw of an arm's best candidate (tables + series)
@@ -43,7 +43,7 @@ Usage:
     python scripts/run_study.py cache                # fit only missing predictions
     python scripts/run_study.py draw                 # one test draw per refit arm
     python scripts/run_study.py test                 # single draw of the winner
-    python scripts/run_study.py rank --models ridge_a10 --combos la4_4w_refitQE
+    python scripts/run_study.py rank --models enet_a0.01_r0.5 --combos la4_4w_refitQE
 """
 
 from __future__ import annotations

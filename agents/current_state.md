@@ -1974,20 +1974,22 @@ baselines.
 
 ---
 
-## RFF Removal — Active Model Space Reset (2026-11-09)
+## Active Model Space Reset (2026-11-09)
 
 ### Action
 
-Removed the RFF model family from the active implementation and study design. The
-fresh-run model space is now Ridge, Lasso, and Elastic Net only.
+Removed RFF and separate Ridge/Lasso model families from the active implementation
+and study design. The fresh-run model space is now Elastic Net only, with endpoints
+included: `l1_ratio=0` covers the Ridge-like case and `l1_ratio=1` covers the
+Lasso-like case.
 
 ### State
 
-- Active model grid: 5 Ridge specs + 4 Lasso specs + 12 Elastic Net specs = **21**
+- Active model grid: 4 alpha values x 5 Elastic Net `l1_ratio` values = **20**
   specs.
-- Active joint ranking size: 21 specs x 14 valid `(rebalance, look-ahead, refit)`
-  combos x 45 book cells = **13,230** candidates.
+- Active joint ranking size: 20 specs x 14 valid `(rebalance, look-ahead, refit)`
+  combos x 45 book cells = **12,600** candidates.
 - RFF-specific fields (`rff_dim`, `gamma`) were removed from model specs, cache
   provenance, study rows, winner metadata, run parameters, and coefficient reporting.
-- Earlier RFF-related notes remain historical provenance only and are stale for any
-  experiment regenerated after this reset.
+- Earlier RFF/Ridge/Lasso family notes remain historical provenance only and are
+  stale for any experiment regenerated after this reset.
