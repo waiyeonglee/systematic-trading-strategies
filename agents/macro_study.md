@@ -68,7 +68,7 @@ Verified on the built panel (`macro_state(..., lag_months=1)`):
 | --- | --- | --- |
 | Train | **2011-01-01 .. 2018-12-31** | rolling **8y = 416 weekly bars** per refit (not 260) |
 | Validation | **2019-01-01 .. 2022-12-31** | the single ranking window; 4 calendar years |
-| Test | **2023-01-01 .. 2025-12-31** | one draw of the winner, measured once |
+| Test | **2023-01-01 .. 2025-12-31** | reserved final draw of the winner, run once after selection is locked |
 
 | Dimension | Values | Count |
 | --- | --- | --- |
@@ -86,9 +86,10 @@ a `(look-ahead, refit)` group collapse to one task, so the 11 combos are 6 forec
 groups: `weekly_la{1,4,12}_refit{ME,QE}`. Run it after changing `--refits`, then
 re-rank; `--models` restricts the specs and `--refresh-cache` refits everything.
 
-`python scripts/run_study_macro.py draw [--refits ...]` draws the best validation
+After the validation-selected configuration is locked,
+`python scripts/run_study_macro.py draw [--refits ...]` can draw the best validation
 candidate of every refit arm on 2023-2025 (one folder per arm, its own figures) and
-writes `draws/arm_comparison.txt`; `test` still draws only the overall winner.
+write `draws/arm_comparison.txt`; `test` draws only the overall winner.
 
 No RFF family: the point of this study is fast iteration over a linear model with
 explicit interactions. `l1_ratio=0` is ridge and `l1_ratio=1` is lasso, so the family
@@ -106,7 +107,7 @@ results/_study_macro/
   validation_ranking.csv
   validation_winner.json               # includes split, window_train, feature block
   run_parameters.json
-  draws/<arm>/<run_tag>/               # arm = w-fri | me | qe: tables + series/
+  draws/<arm>/<run_tag>/               # arm = me | qe: tables + series/
   plots/<arm>/{test,val}/              # 10 figures per window for that arm
   arm_comparison.txt                   # per-arm test draws + the winning arm
 ```
@@ -115,7 +116,7 @@ results/_study_macro/
   window and panel signature — but **not the feature set**, so the study must never
   share `results/_study/predictions`; `run_study_macro.py` always writes to
   `results/_study_macro/predictions`.
-- `run_study_macro.py test` draws the overall winner and publishes to
+- After selection is locked, `run_study_macro.py test` draws the overall winner and publishes to
   `plots/<its arm>/{test,val}/` via
   `run_pipeline(..., plots_root=arm_plots_root(refit))`; `draw` does the same for every
   arm. The whole tree lives inside this study's folder, so the v2 study's draws and
@@ -123,108 +124,17 @@ results/_study_macro/
 
 ## 6. Discipline notes before drawing the test window
 
-- 2023-2025 has already produced three measurements (v2 §5.1 and the two criteria of
-  §5.2). It is a **remeasurement window**, not a fresh holdout; a new hypothesis should
-  be written down before the draw, per `validation_and_ablation.md` §1.2.
+- As of the fresh reset, old generated results have been removed and the 2023-2025
+  window is treated as the final unseen holdout for the current macro experiment.
+- Do not run or inspect 2023-2025 macro test outputs until the validation-selected
+  macro configuration is locked.
 - The enet alpha grid was calibrated on 21 features. With 114 collinear interaction
   columns the useful alpha range may sit below `1e-4`; check the number of non-zero
   coefficients per refit (degenerate candidates are flagged in the ranking) before
   interpreting a null result.
 
-## 7. First cycle — measured (2026-11-04, seed 5205)
+## 7. Current macro state
 
-**Ranking:** 5,400 candidates (20 enet specs x 6 QE combos x 45 books) on 2019-2022,
-1,350 of them degenerate (25%; the `alpha=0.1` L1/enet arms collapse to the intercept,
-plus part of the `1e-2` arm).
-
-| row | model | target | cadence | book | net Sharpe | worst year |
-| --- | --- | --- | --- | --- | --- | --- |
-| winner | `enet_a0.01_r1` (lasso) | absolute12 | weekly / QE | `w48_vt20_rf3_cap1.0` | **1.1763** | +0.26 |
-
-Winner detail: gross 1.1792, maxDD −14.04%, ann return 16.86%, ann vol 14.11%,
-hit rate 0.598, turnover 0.025, 4/4 positive years, up/down capture 0.99 / 0.82.
-Realized vol (14.1%) sits below the 20% target, so the vol overlay never binds — the
-top four rows are that same book with `vt20` and `vtoff` at every cap.
-
-**Forecast quality of the winner** (validation window, target `fwd_ret_12bar`):
-OOS R² **+0.0507**, rank-IC **0.1514** (t 5.51), direction accuracy 0.632; by year
-+0.047 / +0.083 / +0.164 / −0.112 (2019-2022).
-
-**Control A — same search on the 21-feature v2 panel** (identical window, 8y rolling
-window, 20 specs x 6 QE combos x 45 books): best net Sharpe **1.2026**
-(`enet_a0.001_r0.5` / absolute1 / weekly / `w04_vtoff_rf3_cap1.0`), top-20 median
-1.126, 95th pct 0.985, median 0.658. So the 114-column interaction block does **not**
-beat the 21-column panel on this window (1.176 vs 1.203 — inside selection noise).
-
-**Control B — matched cell** (`enet_a0.01_r1`, absolute12, weekly, QE, `w48_vt20`):
-
-| features | net Sharpe | OOS R² | rank-IC | direction |
-| --- | --- | --- | --- | --- |
-| 21 firm features | 0.8406 | 0.0468 | 0.1478 | 0.631 |
-| 114 macro interactions | 1.1763 | 0.0507 | 0.1514 | 0.632 |
-
-The forecast statistics are unchanged; the book difference comes only from the
-prediction level, not from better ordering. **Null result**: on 2019-2022 the five
-macro state variables do not add measurable forecast information beyond the price-based
-features, which is consistent with the earlier decomposition showing the v2 failure
-lives in the level/common component rather than in the cross-section.
-
-### 7.1 Second cycle — full refit space (2026-11-06)
-
-The first cycle ranked the QE arm only. The cache was then completed for the other two
-arms with `python scripts/run_study_macro.py cache` (all 9 forecast groups; the W-FRI
-arm was the gap) and the study re-ranked over all 14 combos:
-
-**Ranking:** 12,600 candidates (20 specs x 14 combos x 45 books), 3,195 degenerate
-(25%), 9,405 live. Best net Sharpe per refit arm: W-FRI 1.1945, QE 1.1763, ME 1.1555;
-median live Sharpe 0.355 / 0.423 / 0.439, i.e. the weekly-refit arm wins at the top and
-loses in the middle of the distribution.
-
-| row | model | target | cadence | book | net Sharpe | maxDD |
-| --- | --- | --- | --- | --- | --- | --- |
-| winner | `enet_a0.001_r1` (lasso) | absolute4 | weekly / W-FRI | `w04_vt10_rf3_cap1.0` | **1.1945** | −17.77% |
-| QE best | `enet_a0.01_r1` | absolute12 | weekly / QE | `w48_vt20_rf3_cap1.0` | 1.1763 | −14.04% |
-| ME best | `enet_a0.01_r0.5` | absolute4 | weekly / ME | `w04_vt10_rf3_cap1.0` | 1.1555 | −13.84% |
-
-The new winner has 17.8% max drawdown versus 14.0% for the QE arm, and it needs 208
-refits per prediction set rather than 16 — a 0.018 Sharpe edge does not obviously pay
-for that. Both arms reproduce the first cycle exactly on their own cells, so widening
-the space changed the selection, not the measurements.
-
-**Test draw (2023-2025) of the new winner:** net Sharpe **0.5286**, maxDD −8.85%, total
-+12.70%, ann vol 14.5%; by year −0.02 / 0.30 / 1.40. The success gate **fails** (bars:
-Sharpe 1.3145, maxDD −7.79%), and the book trails SPY (1.56 / 2.10 / 1.03 by year) and
-equal weight in every year. Draw folder
-`results/_study_macro/draws/w-fri/weekly_fg_roll8y_val4y_wkrefit_enet_a0.001_r1_vt0.1c1rf3_rweekly_2023-2025`;
-figures in `results/_study_macro/plots/w-fri/{test,val}/`.
-
-### 7.2 All three refit arms drawn (2026-11-06)
-
-`python scripts/run_study_macro.py draw` re-draws each arm's best candidate on the same
-2023-2025 window, so the arms are comparable rather than only the overall winner
-(`draws/…` + `plots/…` per arm, summary in `arm_comparison.txt`):
-
-| arm | model / combo | val Sharpe | test Sharpe | maxDD | total | gate |
-| --- | --- | --- | --- | --- | --- | --- |
-| QE | `enet_a0.01_r1` · abs12 · weekly | 1.1763 | **1.3856** | −7.97% | +41.26% | fail (DD) |
-| ME | `enet_a0.01_r0.5` · abs4 · weekly | 1.1555 | 0.8586 | −8.71% | +20.50% | fail |
-| W-FRI | `enet_a0.001_r1` · abs4 · weekly | 1.1945 | 0.5286 | −8.85% | +12.70% | fail |
-
-Cumulative return against the benchmarks (same file, second table):
-
-| arm | val strategy | val EW | val SPY | test strategy | test EW | test SPY |
-| --- | --- | --- | --- | --- | --- | --- |
-| QE | +87.1% | +52.3% | +64.4% | +41.3% | +38.4% | +78.9% |
-| ME | +62.8% | +52.3% | +64.4% | +20.5% | +38.4% | +78.9% |
-| W-FRI | +92.1% | +52.3% | +64.4% | +12.7% | +38.4% | +78.9% |
-
-On validation every arm beat both benchmarks; on the test window only the QE arm beat
-equal weight, and none came close to SPY (+78.9%). The validation spread (+62.8% to
-+92.1%) did not carry over: the arm that led on validation (W-FRI) returned a third of
-the one that trailed it (QE).
-
-The quarterly arm beats the W-FRI winner it lost to on validation by a wide margin
-(+31.6 pp total return), clears the Sharpe bar (1.386 ≥ 1.3145) and misses the drawdown
-bar by 0.18 pp. That is the mirror image of the validation ranking, where W-FRI led
-1.1945 / 1.1763 / 1.1555 — with three draws and one window, neither ordering is
-evidence; the arm-to-arm spread here is larger than the edge that selected the winner.
+No macro ranking or 2023-2025 macro test draw has been recorded for the current reset
+experiment. Any earlier macro result tables, test draws, plots, or arm comparisons are
+stale unless regenerated after the reset.
