@@ -60,7 +60,8 @@ from metrics import perf_stats
 from models import ModelSpec, specs_from_config
 from pipeline import (CUMULATIVE_HEADER, cumulative_by_window,
                       run_pipeline, run_tag)
-from run_backtest import FREQ_LA_PAIRS, FREQ_TO_BARS, REFIT_OPTIONS, REFIT_TO_BARS
+from run_backtest import (FREQ_LA_PAIRS, FREQ_TO_BARS, GRID_ENTRIES as FULL_GRID_ENTRIES,
+                          REFIT_OPTIONS, REFIT_TO_BARS)
 from study_worker import BOOKS, book_config, combo_slug
 from utils.artifacts import save_arm_summary, save_table
 from utils.config import DEFAULT_SEED, seed_everything
@@ -80,8 +81,9 @@ BATCH = 5
 # Elastic net only: alpha x l1_ratio, with 0 (ridge) and 1 (lasso) as the family ends.
 ENET_ALPHAS = (1e-4, 1e-3, 1e-2, 1e-1)
 ENET_L1_RATIOS = (0.0, 0.25, 0.5, 0.75, 1.0)
-GRID_ENTRIES = [{"family": "enet", "alpha": list(ENET_ALPHAS),
-                 "l1_ratio": list(ENET_L1_RATIOS)}]
+ENET_ONLY_GRID = [{"family": "enet", "alpha": list(ENET_ALPHAS),
+                   "l1_ratio": list(ENET_L1_RATIOS)}]
+GRID_ENTRIES = ENET_ONLY_GRID
 
 COMBOS = [(rebalance, horizon, refit)
           for refit in REFIT_OPTIONS
@@ -487,7 +489,7 @@ def run_test() -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    global PANEL, FEATURE_COLS, BENCHMARK_CLOSE, STUDY_DIR, CACHE_ROOT
+    global PANEL, FEATURE_COLS, BENCHMARK_CLOSE, STUDY_DIR, CACHE_ROOT, GRID_ENTRIES
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", nargs="?", default="rank",
@@ -507,7 +509,13 @@ def main() -> None:
                         help="worker processes (0 = min(8, cpu count))")
     parser.add_argument("--refresh-cache", action="store_true",
                         help="recompute cached predictions instead of reusing them")
+    parser.add_argument("--grid", default="enet", choices=("enet", "full"),
+                        help="model space: enet = the 20-spec elastic-net sweep "
+                             "(default, the archived macro study); full = the same "
+                             "93-spec four-family grid as the base study")
     args = parser.parse_args()
+
+    GRID_ENTRIES = FULL_GRID_ENTRIES if args.grid == "full" else ENET_ONLY_GRID
 
     if args.study_dir:
         root = Path(args.study_dir)
@@ -521,7 +529,7 @@ def main() -> None:
           f"{len(FEATURE_COLS)} interaction features, seed {SEED}")
     print(f"split: train {TRAIN[0]}..{TRAIN[1]} | validation {VALIDATION[0]}..{VALIDATION[1]} "
           f"| test {TEST[0]}..{TEST[1]} | rolling window {WINDOW_TRAIN} "
-          f"({len(GRID_ENTRIES)}-family grid, no rff)")
+          f"({len(specs_from_config(GRID_ENTRIES))} specs, {args.grid} grid)")
     print(f"study: {_rel(STUDY_DIR)}")
 
     if args.command == "cache":
