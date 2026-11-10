@@ -193,6 +193,50 @@ def choose_study(feature_set: str, study_dir: str | Path | None = None) -> Path:
     return STUDY_DIR
 
 
+def study_settings(feature_set: str,
+                   study_dir: str | Path | None = None) -> dict:
+    """Everything one block's stages need, so a caller can run them out of order.
+
+    ``init_run`` must have been called first (it builds the panel and the column
+    lists). Returns a dict with the block name, its columns, and the resolved study
+    root and cache root; passing it to :func:`run_cache`/:func:`run_rank`/
+    :func:`run_test` makes those stages independent of the module globals.
+    """
+    root = Path(study_dir) if study_dir else STUDY_ROOTS[feature_set]
+    root = root if root.is_absolute() else PROJECT_ROOT / root
+    if PANEL is None:
+        raise RuntimeError("call init_run(panel, benchmark_close) before study_settings")
+    return {"feature_set": feature_set,
+            "feature_cols": FEATURE_COLS[feature_set],
+            "study_dir": root,
+            "cache_root": root / "predictions"}
+
+
+def init_run(panel: pd.DataFrame, benchmark_close: pd.Series) -> None:
+    """Bind the panel, benchmark and per-block columns used by every stage."""
+    global PANEL, BENCHMARK_CLOSE, FEATURE_COLS
+    PANEL = panel
+    BENCHMARK_CLOSE = benchmark_close
+    FEATURE_COLS = {name: feature_columns(name) for name in FEATURE_SETS}
+
+
+def plots_root_for(feature_set: str, study_dir: str | Path | None = None) -> Path:
+    """Root of a block's published figures: ``results/_study_<block>/plots``."""
+    return study_settings(feature_set, study_dir)["study_dir"] / "plots"
+
+
+def run_pipeline_no_outputs(settings: dict, config) -> dict:
+    """Run one candidate through the pipeline without writing tables or figures.
+
+    Used where only the in-memory books and forecasts are wanted (e.g. an arm
+    comparison that draws its own figures), so nothing is persisted from here.
+    """
+    return run_pipeline(PANEL, settings["feature_cols"], BENCHMARK_CLOSE, config,
+                        test_start=TEST[0], test_end=TEST[1],
+                        window_val=VAL_WINDOW_SLUG, out_dir=None,
+                        publish_figures=False)
+
+
 def _stamp_block(rows: list[dict], feature_set: str) -> None:
     """Label every ranking row with the block it was scored on."""
     for row in rows:
@@ -234,17 +278,27 @@ def _combos(refits: str | None) -> list[tuple[str, int, str]]:
     return [combo for combo in COMBOS if combo[2] in wanted]
 
 
-def _config(horizon: int, rebalance: str, refit: str, model: str, book: dict):
+def _config(horizon: int, rebalance: str, refit: str, model: str, book: dict,
+            feature_set: str | None = None):
     """Config of one cell: the candidate plus that cell's book knobs."""
     return book_config(horizon, rebalance=rebalance, refit=refit, model=model,
                        book=book, window_train=WINDOW_TRAIN,
-                       grid_entries=GRID_ENTRIES, features=FEATURE_SET)
+                       grid_entries=GRID_ENTRIES,
+                       features=feature_set or FEATURE_SET)
 
 
-def _initargs() -> tuple:
-    """Worker initialiser arguments for the active feature block."""
-    return (PANEL, FEATURE_COLS, BENCHMARK_CLOSE, CACHE_ROOT, VALIDATION,
-            WINDOW_TRAIN, FEATURE_SET, GRID_ENTRIES)
+def _resolve(settings: dict | None) -> dict:
+    """The stage's block/roots: explicit ``settings``, else the module state."""
+    if settings is not None:
+        return settings
+    return {"feature_set": FEATURE_SET, "feature_cols": FEATURE_COLS[FEATURE_SET],
+            "study_dir": STUDY_DIR, "cache_root": CACHE_ROOT}
+
+
+def _initargs(block: dict) -> tuple:
+    """Worker initialiser arguments for the given block."""
+    return (PANEL, FEATURE_COLS, BENCHMARK_CLOSE, block["cache_root"], VALIDATION,
+            WINDOW_TRAIN, block["feature_set"], GRID_ENTRIES)
 
 
 def _batches(tasks: list[tuple]):
@@ -256,17 +310,22 @@ def _batches(tasks: list[tuple]):
 # ---------------------------------------------------------------------------
 
 def run_cache(models: str | None, combos: str | None, refits: str | None,
-              refresh: bool, jobs: int) -> None:
+              refresh: bool, jobs: int, settings: dict | None = None) -> None:
     """Fit every missing walk-forward prediction set of the requested space.
 
     The 11 combos map onto 6 ``(look-ahead, refit)`` forecast groups, so only those 6
     groups are filled: combos that differ only in the rebalance cadence share the same
     cached predictions. Nothing is ranked here; run ``rank`` afterwards.
+
+    ``settings`` selects the feature block and its folders; ``None`` uses the module
+    state set up by ``main``/``choose_study``.
     """
+    block = _resolve(settings)
+    feature_set = block["feature_set"]
     specs = _specs(models)
     groups = study_worker.forecast_groups(_parse_combos(combos, _combos(refits)))
     total = len(specs) * len(groups)
-    print(f"prediction cache [{FEATURE_SET}, {len(FEATURE_COLS[FEATURE_SET])} columns]: "
+    print(f"prediction cache [{feature_set}, {len(block['feature_cols'])} columns]: "
           f"{len(specs)} specs x {len(groups)} forecast groups = {total} prediction sets "
           f"on {VALIDATION[0]}..{VALIDATION[1]} (window {WINDOW_TRAIN}, seed {SEED}, "
           f"jobs {jobs})", flush=True)
@@ -278,13 +337,13 @@ def run_cache(models: str | None, combos: str | None, refits: str | None,
 
     # n_jobs=1 runs in-process and never calls the worker initializer, so seed the
     # state here as well (harmless when the pool does call it).
-    study_worker.init(*_initargs())
+    study_worker.init(*_initargs(block))
 
     counts = {"cached": 0, "stored": 0, "degenerate": 0}
     started = time.perf_counter()
     for number, produced in enumerate(
             Parallel(n_jobs=jobs, return_as="generator_unordered",
-                     initializer=study_worker.init, initargs=_initargs())(
+                     initializer=study_worker.init, initargs=_initargs(block))(
                 delayed(study_worker.cache_batch)(batch, refresh) for batch in batches),
             start=1):
         for record in produced:
@@ -298,7 +357,7 @@ def run_cache(models: str | None, combos: str | None, refits: str | None,
 
     print(f"cache: {counts['stored']} stored, {counts['degenerate']} degenerate, "
           f"{counts['cached']} already cached "
-          f"({time.perf_counter() - started:.0f}s) -> {_rel(CACHE_ROOT)}")
+          f"({time.perf_counter() - started:.0f}s) -> {_rel(block['cache_root'])}")
 
 
 # ---------------------------------------------------------------------------
@@ -306,17 +365,20 @@ def run_cache(models: str | None, combos: str | None, refits: str | None,
 # ---------------------------------------------------------------------------
 
 def run_rank(models: str | None, combos: str | None, refits: str | None,
-             refresh: bool, jobs: int) -> Path:
+             refresh: bool, jobs: int, settings: dict | None = None) -> Path:
     """Replay the cached predictions through the whole model x combo x book space.
 
     The winner is the highest net Sharpe on the validation window.
 
     ``refits`` restricts the refit cadences (``"QE"`` = the quarterly arm only).
+    ``settings`` selects the feature block and its folders (``None`` = module state).
     """
+    block = _resolve(settings)
+    feature_set = block["feature_set"]
     specs = _specs(models)
     pairs = _parse_combos(combos, _combos(refits))
     total = len(specs) * len(pairs) * len(BOOKS)
-    print(f"joint ranking [{FEATURE_SET}, {len(FEATURE_COLS[FEATURE_SET])} columns]: "
+    print(f"joint ranking [{feature_set}, {len(block['feature_cols'])} columns]: "
           f"{len(specs)} specs x {len(pairs)} combos x {len(BOOKS)} books = {total} "
           f"candidates on {VALIDATION[0]}..{VALIDATION[1]} (train {TRAIN[0]}.."
           f"{TRAIN[1]}, window {WINDOW_TRAIN}, seed {SEED}, jobs {jobs})", flush=True)
@@ -328,12 +390,12 @@ def run_rank(models: str | None, combos: str | None, refits: str | None,
 
     # n_jobs=1 runs in-process and never calls the worker initializer, so seed the
     # state here as well (harmless when the pool does call it).
-    study_worker.init(*_initargs())
+    study_worker.init(*_initargs(block))
 
     rows: list[dict] = []
     for number, produced in enumerate(
             Parallel(n_jobs=jobs, return_as="generator_unordered",
-                     initializer=study_worker.init, initargs=_initargs())(
+                     initializer=study_worker.init, initargs=_initargs(block))(
                 delayed(study_worker.score_batch)(batch, refresh) for batch in batches),
             start=1):
         rows.extend(produced)
@@ -342,14 +404,14 @@ def run_rank(models: str | None, combos: str | None, refits: str | None,
             print(f"  {done}/{len(tasks)} candidates scored ({len(rows)} rows)",
                   flush=True)
 
-    _stamp_block(rows, FEATURE_SET)
+    _stamp_block(rows, feature_set)
     ranking = (pd.DataFrame(rows)
                .sort_values("net_sharpe", ascending=False, na_position="last")
                .reset_index(drop=True))
     ranking.insert(0, "rank", range(1, len(ranking) + 1))
-    save_table(ranking, STUDY_DIR, "validation_ranking", index=False)
+    save_table(ranking, block["study_dir"], "validation_ranking", index=False)
     _save({"scheme": "joint model x strategy ranking",
-           "features": _feature_record(FEATURE_SET, name_key=True),
+           "features": _feature_record(feature_set, name_key=True),
            "split": {"train": list(TRAIN), "validation": list(VALIDATION),
                      "test": list(TEST)},
            "window_train": WINDOW_TRAIN,
@@ -360,8 +422,8 @@ def run_rank(models: str | None, combos: str | None, refits: str | None,
            "books": [{"name": name, "note": note, "knobs": knobs}
                      for name, knobs, note in BOOKS],
            "candidates": total,
-           "cache": _rel(CACHE_ROOT)},
-          STUDY_DIR / "run_parameters.json")
+           "cache": _rel(block["cache_root"])},
+          block["study_dir"] / "run_parameters.json")
 
     live = ranking[~ranking["degenerate"] & ranking["net_sharpe"].notna()]
     if live.empty:
@@ -374,10 +436,11 @@ def run_rank(models: str | None, combos: str | None, refits: str | None,
                              "vol_target": _optional(best["vol_target"]),
                              "vol_rf": float(best["vol_rf"]),
                              "vol_cap": float(best["vol_cap"]),
-                             "lev_fee": float(best["lev_fee"])})
+                             "lev_fee": float(best["lev_fee"])},
+                            feature_set)
     payload = {
         "phase": "joint-ranking",
-        "features": _feature_record(FEATURE_SET, name_key=True),
+        "features": _feature_record(feature_set, name_key=True),
         "split": {"train": list(TRAIN), "validation": list(VALIDATION),
                   "test": list(TEST)},
         "window": list(VALIDATION), "seed": SEED,
@@ -401,16 +464,16 @@ def run_rank(models: str | None, combos: str | None, refits: str | None,
                     "ann_vol": float(best["ann_vol"]),
                     "hit_rate": float(best["hit_rate"]),
                     "avg_turnover": float(best["avg_turnover"])},
-        "cache": _rel(CACHE_ROOT / f"{VALIDATION[0]}_{VALIDATION[1]}"
+        "cache": _rel(block["cache_root"] / f"{VALIDATION[0]}_{VALIDATION[1]}"
                       / f"weekly_la{int(best['look_ahead'])}_refit{best['refit']}"
                       / f"{best['model']}.npz"),
         "window_train_bars": winner_config.window_train_bars,
-        "ranking": _rel(STUDY_DIR / "validation_ranking.csv"),
+        "ranking": _rel(block["study_dir"] / "validation_ranking.csv"),
         "note": "promotion still requires the pre-registered ADR and the single test "
                 "draw",
     }
-    winner_path = _save(payload, STUDY_DIR / "validation_winner.json")
-    print(f"winner: {FEATURE_SET} / {best['model']} / {best['target']} / "
+    winner_path = _save(payload, block["study_dir"] / "validation_winner.json")
+    print(f"winner: {feature_set} / {best['model']} / {best['target']} / "
           f"{best['rebalance']} / {best['refit']} / {best['book']} -> net Sharpe "
           f"{best['net_sharpe']:.4f}")
     print(f"written: {_rel(winner_path)}")
@@ -452,9 +515,10 @@ def arm_plots_root(refit: str) -> Path:
     return plots_dir() / arm_slug(refit)
 
 
-def _arm_winner_rows(refits: str | None) -> list[pd.Series]:
+def _arm_winner_rows(refits: str | None,
+                     study_dir: Path | None = None) -> list[pd.Series]:
     """Best live ranking row of each refit arm (the ranking is Sharpe-sorted)."""
-    path = STUDY_DIR / "validation_ranking.csv"
+    path = (study_dir or STUDY_DIR) / "validation_ranking.csv"
     if not path.exists():
         raise SystemExit(f"missing {path}; run `python scripts/run_study.py rank` first")
     ranking = pd.read_csv(path)
@@ -481,14 +545,17 @@ def _row_config(row):
                     "lev_fee": float(row["lev_fee"])})
 
 
-def run_draw(refits: str | None = None) -> Path:
+def run_draw(refits: str | None = None, settings: dict | None = None) -> Path:
     """Measure each refit arm's best candidate once on 2023-2025 and compare them.
 
     One run folder per arm under ``draws/<arm>/<run_tag>/`` and the arm's figures under
     ``plots/<arm>/{test,val}/``; the comparison lands in ``arm_comparison.txt`` at the
-    study root.
+    study root. ``settings`` selects the feature block and its folders.
     """
-    rows = _arm_winner_rows(refits)
+    block = _resolve(settings)
+    feature_set = block["feature_set"]
+    study_dir = block["study_dir"]
+    rows = _arm_winner_rows(refits, study_dir)
     arms: list[dict] = []
     cumulative: list[dict] = []
     for row in rows:
@@ -496,14 +563,14 @@ def run_draw(refits: str | None = None) -> Path:
         arm = arm_slug(refit)
         config = _row_config(row)
         tag = run_tag(config, *TEST, window_val=VAL_WINDOW_SLUG)
-        out_dir = draws_dir() / arm / tag
+        out_dir = study_dir / "draws" / arm / tag
         print(f"\n[{arm}] {row['features']} / {row['model']} / {row['target']} / "
               f"{row['rebalance']} / {refit} / {row['book']} "
               f"(validation net Sharpe {row['net_sharpe']:.4f})")
-        results = run_pipeline(PANEL, FEATURE_COLS[FEATURE_SET], BENCHMARK_CLOSE,
+        results = run_pipeline(PANEL, block["feature_cols"], BENCHMARK_CLOSE,
                                config, test_start=TEST[0], test_end=TEST[1],
                                window_val=VAL_WINDOW_SLUG, out_dir=out_dir,
-                               plots_root=arm_plots_root(refit))
+                               plots_root=study_dir / "plots" / arm)
         stats = perf_stats(results["portfolio"]["net_ret"], config.ppy)
         verdict = results["verdict"]
         arms.append({"arm": arm, "features": row["features"], "model": row["model"],
@@ -520,7 +587,7 @@ def run_draw(refits: str | None = None) -> Path:
 
     cumulative.sort(key=lambda row: row.pop("test_sharpe"), reverse=True)
     path = save_arm_summary(
-        arms, STUDY_DIR,
+        arms, study_dir,
         header=["arm", "features", "model", "combo", "book", "val_sharpe",
                 "test_sharpe", "max_drawdown", "total_return", "ann_return", "ann_vol",
                 "gate"],
@@ -539,9 +606,15 @@ def run_draw(refits: str | None = None) -> Path:
 # test — the single draw of the ranking winner
 # ---------------------------------------------------------------------------
 
-def run_test() -> None:
-    """Measure the ranking winner once on 2023-2025 and publish its figures."""
-    winner_path = STUDY_DIR / "validation_winner.json"
+def run_test(settings: dict | None = None) -> None:
+    """Measure the ranking winner once on 2023-2025 and publish its figures.
+
+    ``settings`` selects the feature block and its folders (``None`` = module state).
+    """
+    block = _resolve(settings)
+    feature_set = block["feature_set"]
+    study_dir = block["study_dir"]
+    winner_path = study_dir / "validation_winner.json"
     if not winner_path.exists():
         raise SystemExit(f"missing {winner_path}; run `python scripts/run_study.py "
                          f"rank` first")
@@ -552,18 +625,18 @@ def run_test() -> None:
     model, combo = winner["model"], winner["combo"]
     book = {key: value for key, value in winner["book"].items() if key != "name"}
     config = _config(int(combo["look_ahead"]), combo["rebalance"], combo["refit"],
-                     model["name"], book)
-    out_dir = (draws_dir() / arm_slug(combo["refit"])
+                     model["name"], book, feature_set)
+    figures = study_dir / "plots" / arm_slug(combo["refit"])
+    out_dir = (study_dir / "draws" / arm_slug(combo["refit"])
                / run_tag(config, *TEST, window_val=VAL_WINDOW_SLUG))
-    print(f"TEST draw [{FEATURE_SET}]: {model['name']} / {combo['target']} / "
+    print(f"TEST draw [{feature_set}]: {model['name']} / {combo['target']} / "
           f"{combo['rebalance']} / {combo['refit']} with the {winner['book']['name']} "
           f"book on {TEST[0]}..{TEST[1]} (train 2011-2018, val 2019-2022)")
-    run_pipeline(PANEL, FEATURE_COLS[FEATURE_SET], BENCHMARK_CLOSE, config,
+    run_pipeline(PANEL, block["feature_cols"], BENCHMARK_CLOSE, config,
                  test_start=TEST[0], test_end=TEST[1], window_val=VAL_WINDOW_SLUG,
-                 out_dir=out_dir, plots_root=arm_plots_root(combo["refit"]),
-                 publish_figures=True)
+                 out_dir=out_dir, plots_root=figures, publish_figures=True)
     print(f"results: {_rel(out_dir)}")
-    print(f"figures: {_rel(arm_plots_root(combo['refit']))}/{{test,val}}/")
+    print(f"figures: {_rel(figures)}/{{test,val}}/")
 
 
 # ---------------------------------------------------------------------------
@@ -602,8 +675,8 @@ def main() -> None:
                          "block writes to its own results/_study_<block> folder")
 
     seed_everything(SEED)
-    PANEL, BENCHMARK_CLOSE, _ = build_panel()
-    FEATURE_COLS = {name: feature_columns(name) for name in FEATURE_SETS}
+    panel, benchmark, _ = build_panel()
+    init_run(panel, benchmark)
     dates = PANEL.index.get_level_values("date")
     print(f"panel: {len(PANEL)} rows, {dates.min():%Y-%m-%d}..{dates.max():%Y-%m-%d}, "
           f"{len(FIRM_COLUMNS)} firm features, seed {SEED}")
@@ -617,14 +690,17 @@ def main() -> None:
         study = choose_study(name, args.study_dir)
         print(f"\n=== {name}: {len(FEATURE_COLS[name])} model columns -> {_rel(study)} ===",
               flush=True)
+        settings = study_settings(name, args.study_dir)
         if args.command == "cache":
-            run_cache(args.models, args.combos, args.refits, args.refresh_cache, jobs)
+            run_cache(args.models, args.combos, args.refits, args.refresh_cache, jobs,
+                      settings=settings)
         elif args.command == "draw":
-            run_draw(args.refits)
+            run_draw(args.refits, settings=settings)
         elif args.command == "rank":
-            run_rank(args.models, args.combos, args.refits, args.refresh_cache, jobs)
+            run_rank(args.models, args.combos, args.refits, args.refresh_cache, jobs,
+                     settings=settings)
         else:
-            run_test()
+            run_test(settings=settings)
 
 
 if __name__ == "__main__":

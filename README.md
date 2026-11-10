@@ -52,6 +52,10 @@ scripts/build_features.py    # builds data/features/weekly/ from the raw CSVs:
 scripts/run_study.py         # joint feature-block x model x strategy ranking on the combined
                              # window + test draw; --features micro|macro (default: both),
                              # micro -> results/_study_micro, macro -> results/_study_macro
+scripts/run_pipeline_study.py  # END TO END for one feature block: cache -> rank -> draw -> plots
+                             #   python scripts/run_pipeline_study.py micro|macro|both
+scripts/compare_arms.py      # ME vs QE side-by-side figures + metric txt (validation & test)
+                             #   python scripts/compare_arms.py micro|macro|both
 scripts/run_backtest.py      # single walk-forward backtest / test draw (grid or pinned spec)
 scripts/run_trend_baseline.py  # rule-based baseline: SMA40 / MOM52 long/flat on val + test
                              # -> results/trend_baseline/
@@ -122,6 +126,27 @@ python scripts/run_study.py test                # final holdout only, after sele
                                                 # of that block's ranking winner
 python scripts/run_study.py rank --jobs 4       # worker processes (0 = min(8, cpu))
 
+# ONE command for the whole chain of a block: cache -> rank -> draw -> figures.
+# The draw stage measures the best candidate of BOTH refit arms, so each block ends
+# up with plots/me/ and plots/qe/. This is the usual entry point; the run_study.py
+# stages above are for partial / debugging runs.
+python scripts/run_pipeline_study.py both       # micro then macro, end to end
+python scripts/run_pipeline_study.py micro      # one block only
+python scripts/run_pipeline_study.py macro --jobs 4
+
+# Arm comparison: the ME and QE arms side by side (ME left, QE right), with a red ★
+# on the arm selected on the validation window, plus the validation and test metrics.
+# Needs a ranking to exist (run `rank`, or the end-to-end command above, first).
+#   -> results/_study_<block>/comparison/
+#        figures/cumulative_{test,val}.png   ME | QE, one panel each
+#        figures/drawdown_test.png           underwater curves, same layout
+#        metrics_aggregate.txt               book metrics per arm x window
+#        metrics_forecast.txt                OOS R², direction acc, rank IC
+#        metrics_by_year.txt                 the same split by calendar year
+#      (* marks the validation-selected arm in every table)
+python scripts/compare_arms.py both             # both blocks
+python scripts/compare_arms.py macro            # one block only
+
 # final-holdout baseline only after selection lock: SMA40 / MOM52 long/flat, same book
 # settings and windows as the study; writes results/trend_baseline/<rule>/{val,test}/
 python scripts/run_trend_baseline.py
@@ -174,7 +199,20 @@ results/_study_{micro,macro}/
   draws/<arm>/<run_tag>/      # arm = me | qe; tables, series/, plots/
   plots/<arm>/{test,val}/     # that draw's 10 figures per window
   arm_comparison.txt          # one row per arm + which arm wins on the test window
+  comparison/                 # written by scripts/compare_arms.py
+    figures/cumulative_{test,val}.png   # ME | QE panels, red ★ on the selected arm
+    figures/drawdown_test.png           # underwater curves, same layout
+    metrics_aggregate.txt               # book metrics per arm x window
+    metrics_forecast.txt                # OOS R², direction acc, rank IC
+    metrics_by_year.txt                 # the same split by calendar year
 ```
+
+The `comparison/` block is a *read* of the existing ranking: it re-runs each arm's
+best candidate through the book (predictions come from the cache) and needs no
+re-ranking, so `python scripts/compare_arms.py both` takes ~20 s once the rankings
+exist. In every figure and table the arms appear in a fixed order — **ME first, then
+QE** — and a red ★ (figures) or a trailing `*` (tables) marks the arm selected on the
+validation window. The test window is reported for both arms but selects nothing.
 
 The backtest saves tables under `results/<run_tag>/` (validation ranking,
 comparison vs SPY + EW-16, forecast metrics, coefficients, run config) and their
