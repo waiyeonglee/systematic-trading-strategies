@@ -1,4 +1,4 @@
-# Validation Study — joint model x strategy ranking (trend-following-strategy-v2)
+# Validation Study — joint model x strategy ranking
 
 > **Purpose.** ONE validation stage. The walk-forward predictions for every
 > (model spec, look-ahead, refit cadence) are computed once and cached as npz
@@ -20,7 +20,7 @@
 
 ### 1.1 The split (fixed, mechanical, pre-decided)
 
-Data is used **only through the v2 fixed window — no 2026 data** (data end inclusive
+Data is used **only through the fixed dataset window — no 2026 data** (data end inclusive
 2026-01-01; fetch bound exclusive 2026-01-02). The layers are calendar-anchored and
 were fixed **before** looking at market regimes.
 

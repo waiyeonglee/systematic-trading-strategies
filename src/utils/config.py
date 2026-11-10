@@ -26,13 +26,13 @@ def seed_everything(seed: int = DEFAULT_SEED) -> int:
 FREQUENCIES = ("daily", "weekly")
 PERIODS_PER_YEAR = {"daily": 252, "weekly": 52}
 
-# Fixed dataset window (v2 convention — recorded in agents/current_state.md):
+# Fixed dataset window (recorded in agents/current_state.md):
 # data ends on or before 2026-01-01; the fetch bound is exclusive 2026-01-02.
 START_DATE = "2004-01-01"         # inclusive; pre-2011 history is feature warmup only
 END_DATE_INCLUSIVE = "2026-01-01"  # fixed end of the dataset
 END_DATE_EXCLUSIVE = "2026-01-02"  # yfinance exclusive end (inclusive + 1 day)
 
-# Universe (v2, identical to the reference project):
+# Universe (identical to the reference project):
 # 9 sector ETFs + 7 diversifiers = 16 tradables; SPY is benchmark only.
 CORE_ETFS = ("XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY")
 CROSS_ASSET_ETFS = ("TLT", "IEF", "GLD", "DBC", "UUP", "EFA", "EEM")

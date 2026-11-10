@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Compare the two refit arms of one feature block: ME (left) vs QE (right).
+"""Compare the two refit arms of one feature block (ME left, QE right) + AR(1) baseline.
 
 For every feature block the joint ranking produces one best candidate per refit arm
-(monthly, quarterly). This module draws those two arms side by side, marks which arm
-won the ranking with a star, and reports their validation and test metrics.
+(monthly, quarterly). This module draws those two arms side by side, overlays the AR(1)
+baseline book, marks which arm won the ranking with a star, and reports their
+validation and test metrics.
 
 Outputs, inside ``results/_study_<block>/comparison/``::
 
@@ -15,8 +16,10 @@ Outputs, inside ``results/_study_<block>/comparison/``::
     metrics_forecast.txt         OOS R², rank IC, ...
     metrics_by_year.txt          the same metrics split by calendar year
 
-The metric tables cover both arms on both windows, with the forecasts' OOS R²
-reported next to the book metrics.
+Every figure and table carries the AR(1) baseline as well: a one-lag regression of
+the H-bar forward return on the trailing H-bar return (``baselines.ar1_forecast``),
+traded with the same book, costs and refit cadence as the selected arm. It is fitted
+on the same split, so the difference between it and the arms is purely the features.
 
 Usage:
     python scripts/compare_arms.py micro
@@ -25,7 +28,9 @@ Usage:
 
 Each arm's candidate is re-run through the pipeline (the predictions come from the
 cache, so this is the book simulation only), which is what produces both the figures
-and the metric tables from a single source of truth.
+and the metric tables from a single source of truth. The AR(1) baseline is fitted in
+the same process, on the same split, so it is reported on every row rather than in a
+separate ``results/forecast_baseline`` run.
 """
 
 from __future__ import annotations
@@ -48,9 +53,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 import run_study
+from baselines import ar1_baseline
 from macro_panel import FEATURE_SETS, build_panel
 from metrics import forecast_metrics, oos_r2_by_period, period_stats, perf_stats
-from study_worker import VALIDATION
+from study_worker import VOL_WARMUP_BARS
 
 TEST = run_study.TEST
 VAL_WINDOW_SLUG = run_study.VAL_WINDOW_SLUG
@@ -59,6 +65,15 @@ VAL_WINDOW_SLUG = run_study.VAL_WINDOW_SLUG
 # ---------------------------------------------------------------------------
 # data
 # ---------------------------------------------------------------------------
+
+ARM_ORDER = ("ME", "QE")
+# One colour for the strategy in every panel, so the arms are told apart by position
+# and title (ME left, QE right) rather than by colour; the benchmarks keep theirs.
+STRATEGY_COLOUR = "#1f77b4"
+BASELINE_COLOUR = "#7f7f7f"
+PANEL_COLOURS = {"ME": STRATEGY_COLOUR, "QE": STRATEGY_COLOUR}
+BASELINE_LABEL = "AR(1) baseline"
+
 
 def arm_candidates(feature_set: str) -> list[dict]:
     """Best live candidate of each refit arm.
@@ -86,6 +101,11 @@ def arm_candidates(feature_set: str) -> list[dict]:
             for label in ARM_ORDER]
 
 
+def winner_label(arms: list[dict]) -> str:
+    """Label of the arm the validation ranking selected (highest val net Sharpe)."""
+    return max(arms, key=lambda arm: arm["row"]["net_sharpe"])["label"]
+
+
 def run_arm(entry: dict, feature_set: str, settings: dict) -> dict:
     """Re-run one arm's candidate and capture its two windows' books and forecasts."""
     row = entry["row"]
@@ -101,16 +121,47 @@ def run_arm(entry: dict, feature_set: str, settings: dict) -> dict:
     return {**entry, "results": results, "config": config, "row": row}
 
 
+def run_baseline(arms: list[dict]) -> dict:
+    """AR(1) baseline under the winner's own book and refit cadence.
+
+    The one-lag forecast has no model grid to choose from, so it is fitted on the
+    exact split the winning arm used (its refit cadence, rolling window and label),
+    and traded with that arm's book settings and costs. That keeps the comparison to
+    one question: do the fitted features add anything over the trailing return?
+
+    Returns:
+        A baseline arm dict with the same ``results`` keys the arms carry.
+    """
+    reference = next(arm for arm in arms if arm["label"] == winner_label(arms))
+    config = reference["config"]
+    train = reference["results"]["train"]
+    history = pd.concat([train, reference["results"]["val"]])
+
+    val_preds, val_book = ar1_baseline(train, reference["results"]["val"], config,
+                                       VOL_WARMUP_BARS)
+    test_preds, test_book = ar1_baseline(history, reference["results"]["test"], config,
+                                         VOL_WARMUP_BARS)
+
+    bench = reference["results"]
+    val_benchmarks = {
+        "Equal-weight": bench["val_benchmarks"]["Equal-weight"].reindex(val_book.index),
+        "SPY B&H": bench["val_benchmarks"]["SPY B&H"].reindex(val_book.index)}
+    benchmarks = {
+        "Equal-weight": bench["benchmarks"]["Equal-weight"].reindex(test_book.index),
+        "SPY B&H": bench["benchmarks"]["SPY B&H"].reindex(test_book.index)}
+
+    row = {"model": "ar1", "combo": reference["row"]["combo"],
+           "book": reference["row"]["book"]}
+    return {"label": BASELINE_LABEL, "kind": "baseline", "row": row,
+            "config": config, "is_winner": False,
+            "results": {**bench, "portfolio": test_book, "preds": test_preds,
+                        "val_portfolio": val_book, "val_preds": val_preds,
+                        "benchmarks": benchmarks, "val_benchmarks": val_benchmarks}}
+
+
 # ---------------------------------------------------------------------------
 # figures
 # ---------------------------------------------------------------------------
-
-ARM_ORDER = ("ME", "QE")
-# One colour for the strategy in every panel, so the arms are told apart by position
-# and title (ME left, QE right) rather than by colour; the benchmarks keep theirs.
-STRATEGY_COLOUR = "#1f77b4"
-PANEL_COLOURS = {"ME": STRATEGY_COLOUR, "QE": STRATEGY_COLOUR}
-
 
 def _cumulative(returns: pd.Series) -> pd.Series:
     """Growth of 1 over the series, starting at 1.0 on the first bar."""
@@ -136,8 +187,7 @@ def arm_panels(arms: list[dict], window: str) -> list[dict]:
     missing = [label for label in ARM_ORDER if label not in by_label]
     if missing:
         raise SystemExit(f"no {missing} row in the ranking; cannot compare arms")
-    best = max(arms, key=lambda arm: arm["row"]["net_sharpe"])
-    winner = best["label"]
+    winner = winner_label([by_label[label] for label in ARM_ORDER])
     panels = []
     for label in ARM_ORDER:
         arm = dict(by_label[label])
@@ -172,11 +222,13 @@ def _panel_title(ax, arm: dict, detail: str) -> None:
                 annotation_clip=False)
 
 
-def plot_cumulative(arms: list[dict], window: str, out: Path) -> Path:
+def plot_cumulative(arms: list[dict], window: str, out: Path,
+                    baseline: dict | None = None) -> Path:
     """ME (left) and QE (right) cumulative net return, red star in the winner's title.
 
     ``window`` is ``"test"`` or ``"val"``; each panel also shows the two benchmarks so
-    an arm is readable against Equal-weight and SPY.
+    an arm is readable against Equal-weight and SPY, plus the AR(1) baseline book when
+    one is supplied.
     """
     panels = arm_panels(arms, window)
     fig, axes = _panel_grid(len(panels))
@@ -190,6 +242,12 @@ def plot_cumulative(arms: list[dict], window: str, out: Path) -> Path:
                 alpha=0.85, label="Equal-weight")
         ax.plot(_cumulative(bench["SPY B&H"]), lw=1.0, color="#ff7f0e",
                 alpha=0.85, label="SPY B&H")
+        if baseline is not None:
+            base_book = baseline["results"]["portfolio" if window == "test"
+                                          else "val_portfolio"]
+            ax.plot(_cumulative(base_book["net_ret"]), lw=1.0,
+                    color=BASELINE_COLOUR, ls="--", alpha=0.9,
+                    label=BASELINE_LABEL)
         stats = perf_stats(book["net_ret"], arm["config"].ppy)
         _panel_title(ax, arm, f"Sharpe {stats['sharpe']:.2f} · "
                               f"maxDD {stats['max_drawdown']:.1%}")
@@ -206,7 +264,7 @@ def plot_cumulative(arms: list[dict], window: str, out: Path) -> Path:
     return out
 
 
-def plot_drawdown(arms: list[dict], out: Path) -> Path:
+def plot_drawdown(arms: list[dict], out: Path, baseline: dict | None = None) -> Path:
     """Underwater curve, ME (left) and QE (right), red star in the winner's title."""
     panels = arm_panels(arms, "test")
     fig, axes = _panel_grid(len(panels))
@@ -215,6 +273,11 @@ def plot_drawdown(arms: list[dict], out: Path) -> Path:
         ax.fill_between(book["net_ret"].index, _drawdown(book["net_ret"]), 0,
                         color=PANEL_COLOURS[arm["label"]], alpha=0.35,
                         label=f"{arm['label']} (net)")
+        if baseline is not None:
+            base_ret = baseline["results"]["portfolio"]["net_ret"]
+            ax.plot(base_ret.index, _drawdown(base_ret), lw=1.0,
+                    color=BASELINE_COLOUR, ls="--", alpha=0.9,
+                    label=BASELINE_LABEL)
         stats = perf_stats(book["net_ret"], arm["config"].ppy)
         _panel_title(ax, arm, f"maxDD {stats['max_drawdown']:.2%}")
         ax.set_ylabel("drawdown", fontsize=8)
@@ -250,20 +313,16 @@ def _forecast_block(arm: dict, window: str) -> dict:
     return {key: metrics.get(key) for key in FORECAST_KEYS}
 
 
-def winner_label(arms: list[dict]) -> str:
-    """Label of the arm the validation ranking selected (highest val net Sharpe)."""
-    return max(arms, key=lambda arm: arm["row"]["net_sharpe"])["label"]
-
-
-def aggregate_rows(arms: list[dict], window: str) -> list[dict]:
+def aggregate_rows(arms: list[dict], window: str, baseline: dict | None = None) -> list[dict]:
     """One row per arm: book metrics (net + gross) plus forecast quality.
 
     The winning arm's ``arm`` cell carries a trailing ``*`` so the text tables mark it
-    without adding a column that would widen the table.
+    without adding a column that would widen the table. The AR(1) baseline, when
+    given, is appended as a ``kind="baseline"`` row.
     """
     winner = winner_label(arms)
     rows = []
-    for arm in arms:
+    for arm in [*arms, *([baseline] if baseline is not None else [])]:
         results = arm["results"]
         book = results["portfolio" if window == "test" else "val_portfolio"]
         ppy = arm["config"].ppy
@@ -363,25 +422,28 @@ def compare_block(feature_set: str, panel, benchmark) -> dict:
 
     entries = arm_candidates(feature_set)
     arms = [run_arm(entry, feature_set, settings) for entry in entries]
-    for arm in arms:
+    baseline = run_baseline(arms)
+    for arm in [*arms, baseline]:
         stats = perf_stats(arm["results"]["portfolio"]["net_ret"], arm["config"].ppy)
-        print(f"  {arm['label']:8s} {arm['row']['model']:18s} "
+        print(f"  {arm['label']:14s} {arm['row']['model']:18s} "
               f"{arm['row']['combo']:22s} {arm['row']['book']:22s} "
               f"test Sharpe {stats['sharpe']:.3f}", flush=True)
 
     figures = root / "figures"
     written = [
-        plot_cumulative(arms, "test", figures / "cumulative_test.png"),
-        plot_cumulative(arms, "val", figures / "cumulative_val.png"),
-        plot_drawdown(arms, figures / "drawdown_test.png"),
+        plot_cumulative(arms, "test", figures / "cumulative_test.png", baseline),
+        plot_cumulative(arms, "val", figures / "cumulative_val.png", baseline),
+        plot_drawdown(arms, figures / "drawdown_test.png", baseline),
     ]
 
     aggregate = [row for window in ("val", "test")
-                 for row in aggregate_rows(arms, window)]
+                 for row in aggregate_rows(arms, window, baseline)]
     winner = winner_label(arms)
-    yearly = [row for arm in arms for row in yearly_rows(arm, winner)]
+    yearly = [row for arm in [*arms, baseline] for row in yearly_rows(arm, winner)]
     star_note = (f"* = the arm selected on the validation window ({winner}); the test\n"
-                 "window is reported for both arms but selects nothing.")
+                 "window is reported for both arms but selects nothing.\n"
+                 f"{BASELINE_LABEL} = one-lag AR(1) on the trailing return, no features,\n"
+                 "traded with the selected arm's own book, costs and refit cadence.")
 
     written.append(write_table(
         aggregate, AGGREGATE_COLUMNS,

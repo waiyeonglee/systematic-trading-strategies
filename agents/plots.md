@@ -61,21 +61,27 @@ cache).
 
 | # | file | shows | why it belongs in the report |
 | --- | --- | --- | --- |
-| 01 | `cumulative_returns` | net wealth of the strategy vs **Equal-weight-16** and **SPY B&H** (growth of 1) | the core result: does the book beat its benchmarks over time, and where |
+| 01 | `cumulative_returns` | net wealth of the strategy vs **Equal-weight-16**, **SPY B&H** and the **AR(1) baseline** (growth of 1) | the core result: does the book beat its benchmarks — and a no-feature trailing-return rule — over time, and where |
 | 02 | `gross_vs_net` | cumulative gross vs net wealth, drag shaded | separates **alpha (gross)** from **cost drag**; the shaded gap is the total cost + rf/lev sleeve |
-| 03 | `drawdown` | underwater curves, strategy + both benchmarks | risk view; supports the §3.2 gate argument (maxDD vs bars) |
+| 03 | `drawdown` | underwater curves, strategy + both benchmarks + **AR(1) baseline** | risk view; supports the §3.2 gate argument (maxDD vs bars) |
 | 04 | `costs_and_trades` | cumulative transaction cost (step) + turnover bars with **net-buy ▲ / net-sell ▼** markers on rebalance bars and long/short regime shading | the "pointer where the action was": when the book bought, sold, and whether it was net long or short |
 | 05 | `exposure` | gross / net exposure %, vol-target scale (twin axis), leverage-blocked markers | shows when the vol-target overlay actually de-risked (and that the leverage cap never binds here — the scale is clamped at 1.0) |
 | 06 | `weights_held` | per-ticker weights held over time (longs stack up, shorts down) | what the portfolio actually held — sector/cross-asset tilts and rotation |
 | 07 | `weights_heatmap` | date x ticker weight heatmap | compact read of which assets carried the risk at which times |
 | 08 | `holdings_counts` | n holdings / n long / n short | breadth of the book over time (long-short balance) |
-| 09 | `annual_returns` | calendar-year net returns, strategy vs benchmarks | year-by-year consistency (vs the OOS R² by year) |
+| 09 | `annual_returns` | calendar-year net returns, strategy vs benchmarks + **AR(1) baseline** | year-by-year consistency (vs the OOS R² by year) |
 | 10 | `oos_r2_by_year` | forecast OOS R² per calendar year | the model-quality view behind the book — shows whether signal decayed |
 
 Every PNG is self-contained for a report: header = model + window dates,
 subtitle = net Sharpe / maxDD / total / ann ret / ann vol, the volatility overlay as
 configured and how many bars it actually scaled (e.g. `vol target 20% cap 1 (scaled
 on 4/313 bars)`), plus the run tag.
+
+Figures 01, 03 and 09 also carry the **AR(1) baseline** (grey dashed): a per-ticker
+one-lag regression of the forward return on the trailing return, fitted on the same
+split and traded with the same book, costs and cadence (`baselines.ar1_baseline`).
+It is a *figure-only* reference — it is deliberately kept out of `benchmarks`, so the
+success gate and `comparison.csv` are unaffected by it.
 
 ## Data recorded for plotting (portfolio.py)
 

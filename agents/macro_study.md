@@ -55,9 +55,10 @@ Verified on the built panel (`macro_state(..., lag_months=1)`):
 
 ## 3. Features — 19 x (5 macro + const) = 114
 
-- **Firm block (19):** the 21-column v2 set minus the two market-wide columns
-  `fear_greed_index` and `spy_return_1bar` — i.e. 17 price/volume features + the two
-  trend inputs (`trend_sma40_ratio`, `trend_mom52`).
+- **Firm block (19):** the price/volume features (the feature panel with the two
+  market-wide columns `fear_greed_index` and `spy_return_1bar` removed, since those
+  become macro state instead) plus the two trend inputs (`trend_sma40_ratio`,
+  `trend_mom52`) — 17 price/volume + 2 trend, asserted in `macro_panel.FIRM_COLUMNS`.
 - **Macro block (6):** `const`, `fear_greed`, `tbl`, `tms`, `dfy`, `dfr`.
 - **Interaction:** Kronecker product, column names `<firm>__x__<macro>`; the `const`
   block is the plain firm feature. Built by `macro.kron_features`.
@@ -80,8 +81,8 @@ Verified on the built panel (`macro_state(..., lag_months=1)`):
 | book | vol window {4,8,12,24,48}w x target {20%,10%,off} x cap {1.0,2.0,3.0}, rf 3% | **45** |
 | | **candidates** | **9,900** |
 
-The refit cadence is restricted with `--refits` (default: all of `ME,QE`). Weekly
-refits are removed from the active study space; monthly and quarterly refits remain.
+The refit cadence is restricted with `--refits` (default: all of `ME,QE`). The study
+space holds monthly and quarterly refits only; weekly refits are not part of it.
 
 `python scripts/run_study.py cache --features macro [--refits ...]` fits the **missing**
 prediction sets of that space and nothing else (no book simulation, no ranking). Combos
@@ -100,8 +101,7 @@ explicit interactions. `l1_ratio=0` is ridge and `l1_ratio=1` is lasso, so the f
 ends are covered.
 
 Selection is the same single criterion as the micro block: the highest `net_sharpe` on
-the validation window wins. (A regime-stratified second criterion ran on 2026-11-04
-and was removed on 2026-11-06; see `agents/current_state.md` Step 19.)
+the validation window wins.
 
 ## 5. Outputs and isolation
 
@@ -114,7 +114,14 @@ results/_study_macro/
   draws/<arm>/<run_tag>/               # arm = me | qe: tables + series/
   plots/<arm>/{test,val}/              # 10 figures per window for that arm
   arm_comparison.txt                   # per-arm test draws + the winning arm
+  comparison/                          # scripts/compare_arms.py: ME|QE + AR(1) tables/figures
 ```
+
+Every published figure in `plots/<arm>/{test,val}/` draws the **AR(1) baseline** as a
+grey dashed line next to the strategy and the two benchmarks: a per-ticker one-lag
+regression of the forward return on the trailing return, fitted on the same split and
+traded with the same book, costs and cadence. It is a no-feature reference, so a panel
+shows at a glance whether the fitted features add anything over the trailing return.
 
 - The cache provenance records seed, target, refit, rolling window, embargo,
   evaluation window, feature block and panel signature. Each block also gets its own
@@ -127,12 +134,11 @@ results/_study_macro/
   the same for every arm. The whole tree lives inside this block's folder, so the
   micro block's draws and figures are never touched.
 
-## 6. Discipline notes before drawing the test window
+## 6. Discipline notes on the test window
 
-- As of the fresh reset, old generated results have been removed and the 2023-2025
-  window is treated as the final unseen holdout for the current macro experiment.
-- Do not run or inspect 2023-2025 macro test outputs until the validation-selected
-  macro configuration is locked.
+- The 2023-2025 window has been drawn for both arms (see §7): treat it as a
+  descriptive out-of-sample check. Any further modelling decision must come from the
+  validation window only.
 - The enet alpha grid was calibrated on 21 features. With 114 collinear interaction
   columns the useful alpha range may sit below `1e-4`; check the number of non-zero
   coefficients per refit (degenerate candidates are flagged in the ranking) before
@@ -140,6 +146,15 @@ results/_study_macro/
 
 ## 7. Current macro state
 
-No macro ranking or 2023-2025 macro test draw has been recorded for the current reset
-experiment. Any earlier macro result tables, test draws, plots, or arm comparisons are
-stale unless regenerated after the reset.
+The macro block has been ranked and drawn (9,900 candidates):
+
+- **Validation winner:** `enet_a0.01_r1`, absolute12 / weekly / QE, book
+  `w48_vt20_rf3_cap1.0` → net Sharpe **1.1763** on 2019-2022.
+- **Ties matter here.** Four books score exactly 1.1763 (the leverage cap cannot bind
+  while the volatility overlay is off, so `cap1`/`2`/`3` are the same book). The
+  ranking breaks ties deterministically (candidate order, then a stable sort), with the
+  alphabetical book name deciding between otherwise equal candidates.
+- **Test window (2023-2025), descriptive only:** the QE arm drew net Sharpe 1.3856
+  (maxDD -7.97%) and the ME arm 0.8586; the AR(1) no-feature baseline drew 1.2640. The
+  9,900-row ranking is in `validation_ranking.csv` and the per-arm figures under
+  `plots/{me,qe}/{test,val}/`.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the walk-forward model-selection backtest for trend-following-strategy-v2.
+"""Run the walk-forward model-selection backtest for this project.
 
 Reads the raw weekly CSVs (16 tradables + SPY) and the Fear & Greed index, builds the
 feature panel with the 1/4/12-bar forward-return labels, selects the grid point
@@ -19,7 +19,7 @@ frequency x refit **x book** jointly on the combined validation window
 ``scripts/run_study.py``). This CLI measures **one pinned cell** (validation + the
 single test draw); it does not re-rank the space.
 
-Defaults encode the v2 fixed window (data ends 2026-01-01): weekly bars, 8y rolling
+Defaults encode the fixed dataset window (data ends 2026-01-01): weekly bars, 8y rolling
 train / 4y combined validation (2019-2022) / quarterly refits, the 20-spec grid,
 absolute12 target, embargo 12, forecast-vol-scaled book (24w vol, 4-week rebalance,
 moomoo, 0 bps, cost gate 1.0) with the 10% vol target / cap 1.0 / 3% risk-free
@@ -50,10 +50,9 @@ from build_features import load_fear_greed_index, load_ohlcv
 from features import build_feature_frame, feature_columns
 from labels import MODEL_EMBARGO, MODEL_TARGETS, make_labels
 from models import specs_from_config
-from pipeline import PipelineConfig, evaluate_all, run_pipeline, run_tag
+from pipeline import PipelineConfig, run_pipeline, run_tag
 from portfolio import ForecastVolParams
-from utils.config import (BENCHMARKS, DEFAULT_SEED, START_DATE, TRADABLE_ETFS,
-                          seed_everything)
+from utils.config import (BENCHMARKS, DEFAULT_SEED, TRADABLE_ETFS, seed_everything)
 from utils.paths import FEAR_GREED_PATH, RESULTS_DIR, raw_data_dir
 
 # Design grid (agents/model_design.py §2), revised 2026-11-09 (user request) to an
@@ -119,14 +118,14 @@ def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
 
 
 def default_config(horizon: int, vol_target: bool | float | None,
+                   features: str,
                    model: str | None = None,
                    vol_window: int = 24, rebalance: str = "4w",
                    refit_every: str = "QE",
                    vol_cap: float = 1.0, vol_rf: float = 0.03,
                    lev_fee: float = 0.0,
                    window_train: str | None = "8y",
-                   grid_entries: list[dict] | None = None,
-                   features: str = "macro") -> PipelineConfig:
+                   grid_entries: list[dict] | None = None) -> PipelineConfig:
     """Pipeline settings with the fixed study window.
 
     ``model`` pins a single spec (``mode: single``, a single ranked cell); ``None``
@@ -225,7 +224,10 @@ def main() -> None:
 
     seed_everything()
     panel, benchmark_close, feature_cols = build_panel()
+    # this CLI backtest reads the raw 21-feature panel restricted to the 19 firm
+    # model inputs, i.e. the micro block
     config = default_config(args.horizon, vol_target=not args.no_vol_target,
+                            features="micro",
                             model=args.model, vol_window=args.vol_window,
                             rebalance=args.rebalance, refit_every=args.refit_every,
                             vol_cap=args.vol_cap, vol_rf=args.vol_rf,

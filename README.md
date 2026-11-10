@@ -1,4 +1,4 @@
-# trend-following-strategy
+# systematic-trading-strategies
 
 Standalone implementation of a cross-asset weekly trend-following strategy
 (DSA5205 Project 2). Universe: 16 tradable ETFs (9 US sectors + 7 diversifiers)
@@ -136,14 +136,19 @@ python scripts/run_pipeline_study.py macro --jobs 4
 
 # Arm comparison: the ME and QE arms side by side (ME left, QE right), with a red ★
 # on the arm selected on the validation window, plus the validation and test metrics.
+# Every panel and table also carries the AR(1) baseline: a one-lag regression of the
+# H-bar forward return on the trailing H-bar return (no features), fitted on the same
+# split and traded with the selected arm's own book, costs and refit cadence - so the
+# difference between it and the arms is purely the feature set.
 # Needs a ranking to exist (run `rank`, or the end-to-end command above, first).
 #   -> results/_study_<block>/comparison/
-#        figures/cumulative_{test,val}.png   ME | QE, one panel each
+#        figures/cumulative_{test,val}.png   ME | QE, one panel each, + AR(1) baseline
 #        figures/drawdown_test.png           underwater curves, same layout
 #        metrics_aggregate.txt               book metrics per arm x window
 #        metrics_forecast.txt                OOS R², direction acc, rank IC
 #        metrics_by_year.txt                 the same split by calendar year
-#      (* marks the validation-selected arm in every table)
+#      (* marks the validation-selected arm in every table; the AR(1) baseline is
+#       the last row of every table and a grey dashed line in every figure)
 python scripts/compare_arms.py both             # both blocks
 python scripts/compare_arms.py macro            # one block only
 
@@ -197,14 +202,14 @@ folder:
 ```
 results/_study_{micro,macro}/
   draws/<arm>/<run_tag>/      # arm = me | qe; tables, series/, plots/
-  plots/<arm>/{test,val}/     # that draw's 10 figures per window
+  plots/<arm>/{test,val}/     # that draw's 10 figures per window (with AR(1) baseline)
   arm_comparison.txt          # one row per arm + which arm wins on the test window
   comparison/                 # written by scripts/compare_arms.py
     figures/cumulative_{test,val}.png   # ME | QE panels, red ★ on the selected arm
     figures/drawdown_test.png           # underwater curves, same layout
-    metrics_aggregate.txt               # book metrics per arm x window
-    metrics_forecast.txt                # OOS R², direction acc, rank IC
-    metrics_by_year.txt                 # the same split by calendar year
+    metrics_aggregate.txt               # book metrics per arm x window (+ AR(1))
+    metrics_forecast.txt                # OOS R², direction acc, rank IC (+ AR(1))
+    metrics_by_year.txt                 # the same split by calendar year (+ AR(1))
 ```
 
 The `comparison/` block is a *read* of the existing ranking: it re-runs each arm's
@@ -213,6 +218,19 @@ re-ranking, so `python scripts/compare_arms.py both` takes ~20 s once the rankin
 exist. In every figure and table the arms appear in a fixed order — **ME first, then
 QE** — and a red ★ (figures) or a trailing `*` (tables) marks the arm selected on the
 validation window. The test window is reported for both arms but selects nothing.
+
+Every table in `comparison/`, and every `plots/<arm>/{test,val}/` figure that shows a
+benchmark (01 cumulative, 03 drawdown, 09 annual), also carries the **AR(1) baseline**
+(`baselines.ar1_baseline`): a per-ticker one-lag regression of the H-bar forward
+return on the trailing H-bar return, with no features at all. It is reported last, in
+a grey dashed line, and is fitted on exactly the split the selected arm used (same
+refit cadence, rolling window and label) and traded with that arm's own book and costs
+— so any difference between it and the arms is attributable to the features, not to
+the book. It is deliberately kept out of `benchmarks`, which feed the success gate and
+`comparison.csv`. On the test window it is a demanding bar: in the current draws it
+beats the micro arms outright and comes close to the macro QE arm, which is worth
+weighing before reading the feature blocks as an improvement over a trailing-return
+rule.
 
 The backtest saves tables under `results/<run_tag>/` (validation ranking,
 comparison vs SPY + EW-16, forecast metrics, coefficients, run config) and their

@@ -1,7 +1,7 @@
 [project]
-name = "trend-following-strategy-v2"
+name = "systematic-trading-strategies"
 version = "0.1.0"
-description = "DSA5205 Project 2 - Trend-following strategy v2: cross-asset weekly trend/ML strategy on 16 ETFs + SPY benchmark (standalone re-implementation)."
+description = "DSA5205 Project 2 - Trend-following strategy: cross-asset weekly trend/ML strategy on 16 ETFs + SPY benchmark (standalone re-implementation)."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

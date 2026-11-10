@@ -68,15 +68,14 @@ _STATE: dict = {}
 
 
 def book_config(horizon: int, *, rebalance: str, refit: str, model: str | None,
-                book: dict, window_train: str | None = "8y",
-                grid_entries: list[dict] | None = None, features: str = "macro"):
+                book: dict, features: str, window_train: str | None = "8y",
+                grid_entries: list[dict] | None = None):
     """Config for one book cell: the candidate plus that cell's book knobs."""
     book = dict(book)
     vol_target = book.pop("vol_target", True)
-    return default_config(horizon, vol_target=vol_target, model=model,
-                          rebalance=rebalance, refit_every=refit,
-                          window_train=window_train, grid_entries=grid_entries,
-                          features=features, **book)
+    return default_config(horizon, vol_target=vol_target, features=features,
+                          model=model, rebalance=rebalance, refit_every=refit,
+                          window_train=window_train, grid_entries=grid_entries, **book)
 
 
 def effective_key(knobs: dict) -> tuple:
@@ -93,10 +92,13 @@ def effective_key(knobs: dict) -> tuple:
 
 def init(panel: pd.DataFrame, feature_sets: dict[str, list[str]],
          benchmark_close: pd.Series, cache_root: Path,
-         validation: tuple[str, str] = VALIDATION,
-         window_train: str | None = "8y", feature_set: str = "macro",
+         validation: tuple[str, str], window_train: str | None, feature_set: str,
          grid_entries: list[dict] | None = None) -> None:
-    """Called once per worker process; ``feature_sets`` maps a block name to its columns."""
+    """Called once per worker process; ``feature_sets`` maps a block name to its columns.
+
+    Every argument is required and positional: ``study_worker`` runs under joblib, so
+    a silently defaulted block would mislabel a worker's cache and figures.
+    """
     _STATE.update(panel=panel, feature_sets=feature_sets,
                   benchmark_close=benchmark_close, cache_root=Path(cache_root),
                   validation=tuple(validation), window_train=window_train,

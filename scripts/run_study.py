@@ -243,6 +243,27 @@ def _stamp_block(rows: list[dict], feature_set: str) -> None:
         row["features"] = feature_set
 
 
+def _ranking_frame(rows: list[dict], tasks: list[tuple]) -> pd.DataFrame:
+    """Rank the scored rows by net Sharpe, with a deterministic tie-break.
+
+    ``score_batch`` is consumed from an *unordered* joblib generator, so two identical
+    runs can collect tied rows in any order. Several books do tie exactly (the
+    leverage cap never binds when the volatility overlay is off, so ``cap1``/``2``/``3``
+    are the same book), and the winner is ``iloc[0]`` — so the rows are first restored
+    to the candidate order (spec x combo, then book name) and then sorted with a stable
+    sort. The winner is therefore a function of the scores alone, not of scheduling.
+    """
+    order = {(spec.name, rebalance, horizon, refit): index
+             for index, (spec, rebalance, horizon, refit) in enumerate(tasks)}
+    rows.sort(key=lambda row: (order[(row["model"], row["rebalance"],
+                                     int(row["look_ahead"]), row["refit"])],
+                               row["book"]))
+    return (pd.DataFrame(rows)
+            .sort_values("net_sharpe", ascending=False, na_position="last",
+                         kind="stable")
+            .reset_index(drop=True))
+
+
 def _specs(text: str | None) -> list[ModelSpec]:
     specs = specs_from_config(GRID_ENTRIES)
     if not text:
@@ -405,9 +426,7 @@ def run_rank(models: str | None, combos: str | None, refits: str | None,
                   flush=True)
 
     _stamp_block(rows, feature_set)
-    ranking = (pd.DataFrame(rows)
-               .sort_values("net_sharpe", ascending=False, na_position="last")
-               .reset_index(drop=True))
+    ranking = _ranking_frame(rows, tasks)
     ranking.insert(0, "rank", range(1, len(ranking) + 1))
     save_table(ranking, block["study_dir"], "validation_ranking", index=False)
     _save({"scheme": "joint model x strategy ranking",
@@ -553,7 +572,6 @@ def run_draw(refits: str | None = None, settings: dict | None = None) -> Path:
     study root. ``settings`` selects the feature block and its folders.
     """
     block = _resolve(settings)
-    feature_set = block["feature_set"]
     study_dir = block["study_dir"]
     rows = _arm_winner_rows(refits, study_dir)
     arms: list[dict] = []
@@ -644,7 +662,7 @@ def run_test(settings: dict | None = None) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    global PANEL, BENCHMARK_CLOSE, FEATURE_COLS, FEATURE_SET
+    global FEATURE_SET
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", nargs="?", default="rank",

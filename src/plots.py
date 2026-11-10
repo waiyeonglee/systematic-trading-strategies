@@ -4,17 +4,24 @@ Every run folder now ships a ``plots/`` directory with the time-series figures a
 report needs, for **both** windows of the run (the test window the book is
 measured on, and the validation window the model was selected on):
 
-    01_cumulative_returns   net wealth vs Equal-weight and SPY B&H benchmarks
+    01_cumulative_returns   net wealth vs Equal-weight, SPY B&H and the AR(1) baseline
     02_gross_vs_net         gross vs net wealth, cost/sleeve drag shaded
-    03_drawdown             underwater curves (strategy + benchmarks)
+    03_drawdown             underwater curves (strategy + benchmarks + AR(1) baseline)
     04_costs_and_trades     cumulative transaction cost + turnover, with
                             net-buy / net-sell markers and long/short shading
     05_exposure             gross / net exposure, vol-target scale, leverage blocks
     06_weights_held         per-ticker weights held (longs up, shorts down)
     07_weights_heatmap      date x ticker weight heatmap
     08_holdings_counts      n holdings / n long / n short over time
-    09_annual_returns       calendar-year net returns vs benchmarks
+    09_annual_returns       calendar-year net returns vs benchmarks + AR(1) baseline
     10_oos_r2_by_year       out-of-sample R2 per calendar year
+
+The AR(1) baseline is drawn in every figure that shows a benchmark: a per-ticker
+one-lag regression of the forward return on the trailing return, traded with the same
+book and costs (``baselines.ar1_baseline``). It is a no-feature reference so a panel
+answers "do the fitted features add anything over the trailing return?" at a glance.
+It reaches the figures through ``plot_benchmarks`` and is never part of ``benchmarks``,
+which feed the success gate and ``comparison.csv``.
 
 The figures are drawn from the objects the pipeline already computes (the book
 frame with its per-date ``weights_wide`` / ``orders_wide`` attachments, the
@@ -61,9 +68,21 @@ C_GROSS = "#8c8c8c"      # gray: gross book
 C_COST = "#c0392b"       # red: costs / drawdown
 C_EW = "#27ae60"         # green: Equal-weight-16 benchmark
 C_SPY = "#d35400"        # orange: SPY buy-and-hold benchmark
+C_AR1 = "#7f7f7f"        # gray, dashed: AR(1) no-feature baseline
 C_VOLSCALE = "#8e44ad"   # purple: vol-target scale
 C_LONG = "#1f4e79"
 C_SHORT = "#c0392b"
+
+AR1_LABEL = "AR(1) baseline"
+
+
+def _benchmark_style(label: str) -> dict:
+    """Line style of one benchmark: colour, width and dash pattern."""
+    if "SPY" in label:
+        return {"color": C_SPY, "lw": 1.4}
+    if label == AR1_LABEL:
+        return {"color": C_AR1, "lw": 1.2, "ls": "--"}
+    return {"color": C_EW, "lw": 1.4}
 
 _TICKER_COLORS = [plt.cm.tab20(i) for i in range(20)]  # 16 tradables + slack
 
@@ -133,9 +152,8 @@ def _plot_cumulative_returns(book: pd.DataFrame, benchmarks: dict[str, pd.Series
     net = _wealth(book["net_ret"])
     ax.plot(net.index, net.values, label="Strategy (net)", color=C_STRATEGY, lw=2.0)
     for label, rets in benchmarks.items():
-        colour = C_SPY if "SPY" in label else C_EW
         cum = _wealth(rets.reindex(net.index))
-        ax.plot(cum.index, cum.values, label=label, color=colour, lw=1.4)
+        ax.plot(cum.index, cum.values, label=label, **_benchmark_style(label))
     for i, line in enumerate(ax.get_lines()):
         # stagger label offsets so coincident terminal values don't overlap
         off = (0, 6) if i % 2 == 0 else (0, -14)
@@ -176,10 +194,9 @@ def _plot_drawdown(book: pd.DataFrame, benchmarks: dict[str, pd.Series],
     ax.fill_between(under.index, under.values, 0.0, color=C_COST, alpha=0.30,
                     label=f"Strategy (maxDD {max_drawdown(book['net_ret']):.2%})")
     for label, rets in benchmarks.items():
-        colour = C_SPY if "SPY" in label else C_EW
         u = _underwater(rets.reindex(under.index))
         ax.plot(u.index, u.values, label=f"{label} (maxDD {u.min():.2%})",
-                color=colour, lw=1.2)
+                **_benchmark_style(label))
     ax.axhline(0.0, color="#555555", lw=0.8)
     ax.set_title(header)
     ax.set_ylabel("Drawdown")
@@ -326,20 +343,21 @@ def _plot_annual_returns(book: pd.DataFrame, benchmarks: dict[str, pd.Series],
     fig, ax = plt.subplots(figsize=(9.2, 4.4))
     years = sorted(set(book["net_ret"].index.year) |
                    {y for s in benchmarks.values() for y in s.index.year})
-    width = 0.26
     positions = np.arange(len(years))
-    strategy = _annual_returns(book["net_ret"]).reindex(years).fillna(0.0)
-    ax.bar(positions - width, strategy.values, width, label="Strategy (net)",
-           color=C_STRATEGY)
-    ew = _annual_returns(benchmarks["Equal-weight"]).reindex(years).fillna(0.0)
-    ax.bar(positions, ew.values, width, label="Equal-weight", color=C_EW)
-    spy = _annual_returns(benchmarks["SPY B&H"]).reindex(years).fillna(0.0)
-    ax.bar(positions + width, spy.values, width, label="SPY B&H", color=C_SPY)
+    bars = [("Strategy (net)", book["net_ret"], C_STRATEGY)]
+    for label, rets in benchmarks.items():
+        bars.append((label, rets, _benchmark_style(label)["color"]))
+    width = 0.8 / len(bars)
+    for offset, (label, rets, colour) in enumerate(bars):
+        values = _annual_returns(rets).reindex(years).fillna(0.0)
+        ax.bar(positions + (offset - (len(bars) - 1) / 2) * width, values.values,
+               width, label=label, color=colour)
     ax.axhline(0.0, color="#555555", lw=0.8)
     ax.set_xticks(positions, [str(y) for y in years])
     ax.set_title(header)
     ax.set_ylabel("Annual net return")
-    ax.legend(loc="upper right", ncol=3, fontsize=7.5)
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.22), ncol=len(bars),
+              fontsize=7.5)
     _finish(fig, path, subtitle)
 
 
@@ -360,12 +378,17 @@ def _plot_oos_r2_by_year(preds: pd.DataFrame, target_col: str,
 # ---------------------------------------------------------------------------
 
 def _figure_plan(results: dict):
-    """(window name, book, preds, benchmarks) for both windows of the run."""
+    """(window name, book, preds, benchmarks) for both windows of the run.
+
+    ``plot_benchmarks`` / ``val_plot_benchmarks`` are the gate benchmarks plus the AR(1)
+    baseline, so the published figures can be read against a no-feature rule.
+    """
     config = results["config"]
     return [
-        ("test", results["portfolio"], results["preds"], results["benchmarks"], config.ppy),
+        ("test", results["portfolio"], results["preds"],
+         results["plot_benchmarks"], config.ppy),
         ("validation", results["val_portfolio"], results["val_preds"],
-         results["val_benchmarks"], config.ppy),
+         results["val_plot_benchmarks"], config.ppy),
     ]
 
 

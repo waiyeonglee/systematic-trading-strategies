@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Regenerate the weekly OHLCV dataset for trend-following-strategy-v2.
+"""Regenerate the weekly OHLCV dataset for this project.
 
 Regeneration tool only. The pipeline's normal path imports the CSVs already
 present in ``data/raw/weekly/``; this script exists so the dataset can be rebuilt
 from Yahoo Finance when a re-fetch is ever needed.
 
-Fixed dataset window (v2 convention, recorded in agents/current_state.md):
+Fixed dataset window (recorded in agents/current_state.md):
     - start date (inclusive) : 2004-01-01 (or instrument inception, whichever is
                                later); pre-2011 history is feature-warmup only
     - end date (inclusive)   : 2026-01-01  (fixed end of the dataset)

@@ -1,6 +1,6 @@
-"""DESIGN reference for the trend-following-strategy-v2 project (standalone, latest).
+"""DESIGN reference for the systematic-trading-strategies project.
 
-STATUS: this project's design source of truth. The v2 pipeline (src/models.py,
+STATUS: this project's design source of truth. The pipeline (src/models.py,
 src/splits.py, src/prediction_cache.py, src/portfolio.py, src/metrics.py,
 src/pipeline.py, scripts/run_study.py, scripts/run_backtest.py) is implemented from
 this file. The validation protocol and its measured record live in
@@ -25,7 +25,7 @@ and the winner is `results/_study_<block>/validation_winner.json`; the numbers a
 summarised in agents/validation_and_ablation.md §5. `HEADLINE_*` stays None until a
 winner passes the test-window gate — the ranking itself promotes nothing.
 
-Earlier protocols (2026-11-02 two-window V1/V2 cycles, the 114-/144-grid runs, the
+Earlier protocols (the 114-/144-grid runs and the
 pre-label-correction test draws) were removed on 2026-11-03 with their result
 artifacts; only their summary numbers survive in agents/current_state.md Steps 1-16.
 
@@ -36,7 +36,7 @@ Design lineage (this project):
                                       ranking space, cache, gate rules) + measured
                                       record
     agents/current_state.md         — project history and handover notes
-    results/                        — measured tables per run tag (v2-owned)
+    results/                        — measured tables per run tag
 
 Rationale in one line: the sister project measured zero cross-sectional signal on
 9 highly-correlated sector ETFs because the median-subtracted label removes the shared
@@ -56,10 +56,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from utils.config import DEFAULT_SEED  # noqa: E402  (the single source of truth)
 
 # ---------------------------------------------------------------------------
-# 1. Data (v2 fixed window: no 2026 data)
+# 1. Data (fixed window: no 2026 data)
 # ---------------------------------------------------------------------------
 DATA_START = "2004-01-01"          # first weekly bar; pre-2011 rows are warmup only
-DATA_END = "2026-01-01"            # v2 fixed cut, end INCLUSIVE (config
+DATA_END = "2026-01-01"            # fixed cut, end INCLUSIVE (config
                                    # END_DATE_INCLUSIVE); the fetch bound is
                                    # exclusive 2026-01-02 (END_DATE_EXCLUSIVE);
                                    # the weekly panel runs to 2025-12-26
@@ -73,7 +73,7 @@ BENCHMARK = "SPY"                  # benchmark #1 (B&H); benchmark #2 = equal-we
 # Per-ticker start (feature_engineering.md §1): GLD 2004-11, DBC 2006-02,
 # UUP 2007-03, the others 2004-01. Fear & Greed (2011+) gates the runnable panel:
 # with use_fear_greed: true the NaN warmup rows are dropped, so the panel starts
-# 2011-01-07 (verified in the v2 backtest output).
+# 2011-01-07 (verified in the backtest output).
 
 # ---------------------------------------------------------------------------
 # 2. Features & labels (implemented in src/features.py, src/labels.py;
@@ -152,7 +152,7 @@ POSITION_RULE = "long_flat"        # rule path only; the ML book is long+short
 @dataclass(frozen=True)
 class Portfolio:
     strategy: str = "forecast_vol_scaled"  # registered in src/portfolio.py STRATEGIES;
-                                           # the ML book is the v2 main implementation
+                                           # the ML book is the main implementation
     weighting: str = "vol_scaled"       # inverse realized-vol weights
     vol_window: int = 24                # reference book; ranked over 4/8/12/24/48w
     vol_min_periods: int = 20           # history required before an ETF is tradable
@@ -267,7 +267,7 @@ HEADLINE_FOLDER = None             # results folder of the single test measureme
 def main() -> None:
     """Print the DESIGN summary."""
     print("=" * 74)
-    print("trend-following-strategy-v2 — DESIGN reference (standalone, latest)")
+    print("DESIGN reference for the systematic-trading-strategies project")
     print("=" * 74)
     print(f"status      : design source of truth (copied & refreshed from the reference "
           f"project); first measured run validated byte-identical (ADR 09 stack, "

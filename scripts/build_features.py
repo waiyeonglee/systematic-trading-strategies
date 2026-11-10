@@ -17,7 +17,7 @@ firm features from the same frame. It is ~30 MB and git-ignored: the study rebui
 the panel in memory (:mod:`macro_panel`), so the CSV is an inspection artifact. Pass
 ``--no-macro`` to skip it.
 
-Defaults encode the v2 conventions (weekly bars, Fear & Greed on, H = 12 weeks).
+Defaults encode the project conventions (weekly bars, Fear & Greed on, H = 12 weeks).
 The dataset is frozen at the fixed end date 2026-01-01 (see src/utils/config.py).
 
 Usage:

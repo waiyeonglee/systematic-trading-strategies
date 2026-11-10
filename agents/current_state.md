@@ -1,4 +1,4 @@
-# current_state.md - trend-following-strategy-v2
+# current_state.md - project history and handover notes
 
 Current source-of-truth state for the reset experiment cycle. Old generated results,
 historical measured test records, and stale plots have been removed from the active

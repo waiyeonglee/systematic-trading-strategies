@@ -21,6 +21,12 @@ dates than the input.
 ``pred_mean`` is the AR(0) comparison forecast — each ticker's training-window mean —
 so the caller can report the standard "does the model beat the historical average?"
 OOS R² as well as the against-zero R² used elsewhere in this project.
+
+``ar1_book`` turns those forecasts into a tradable book with the study's own
+``forecast_vol_scaled`` rule (same costs, same rebalance cadence), so the baseline can
+be compared with the fitted models on Sharpe and drawdown, not only on R².
+``ar1_baseline`` does both for one window of a split, which is what the report figures
+and the arm comparison consume.
 """
 
 from __future__ import annotations
@@ -117,6 +123,97 @@ def ar1_forecast(panel: pd.DataFrame, target_col: str = TARGET_COL,
     predictions = pd.concat(frames).sort_index()
     coefficients = pd.DataFrame(coefficient_rows).set_index(["refit", "ticker"])
     return predictions, coefficients
+
+
+def ar1_book(preds: pd.DataFrame, params, ppy: int = 52,
+             initial_capital_usd: float = 100_000.0,
+             vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Trade the AR(1) forecasts with the study's own forecast-vol book.
+
+    The baseline is only meaningful next to the fitted models if it faces the same
+    costs and the same book, so the predictions from :func:`ar1_forecast` are handed
+    to the identical rule the study trades (``forecast_vol_scaled``): weights scale
+    each forecast by its own rolling volatility, positions rebalance on the same
+    cadence, and the same broker commissions are charged.
+
+    Args:
+        preds: Output of :func:`ar1_forecast` (``pred`` and ``fwd_ret``).
+        params: ``ForecastVolParams`` of the book (vol window, rebalance, broker).
+        ppy: Periods per year of the panel frequency.
+        initial_capital_usd: Starting equity.
+        vol_history: Earlier out-of-sample AR(1) predictions used only to seed the
+            rolling volatility estimate, so the first bar already has a history.
+
+    Returns:
+        Portfolio frame from ``build_forecast_vol_portfolio``.
+    """
+    from portfolio import build_forecast_vol_portfolio  # deferred: keeps the module leaf
+    return build_forecast_vol_portfolio(preds, params, initial_capital_usd,
+                                        ppy=ppy, vol_history=vol_history)
+
+
+def ar1_warmup(panel: pd.DataFrame, target_col: str, bars: int, *,
+               refit_every: str = "QE", window: int | None = 416,
+               embargo: int | None = None, min_obs: int = 40) -> pd.DataFrame:
+    """AR(1) predictions on the trailing ``bars`` dates of ``panel`` (vol seed only).
+
+    The caller passes the history ending where the evaluation window begins; the
+    returned rows are never traded — they only seed the book's rolling volatility, so
+    the first evaluated bar already has a history. An empty frame is returned when
+    there is not enough history to fit.
+    """
+    dates = panel.index.get_level_values("date")
+    unique_dates = dates.unique().sort_values()
+    embargo = target_horizon(target_col) if embargo is None else embargo
+    if len(unique_dates) <= bars + embargo:
+        return panel.iloc[0:0].copy().assign(pred=pd.Series(dtype=float))
+    # Fit once on everything up to the evaluation window, then keep the trailing bars
+    # that actually received a prediction: a refit block boundary can fall after the
+    # cut, so slicing the input dates by position is not reliable.
+    preds, _ = ar1_forecast(panel, target_col, refit_every=refit_every,
+                            window=window, embargo=embargo, min_obs=min_obs)
+    warm_dates = preds.index.get_level_values("date").unique().sort_values()[-bars:]
+    return preds[preds.index.get_level_values("date").isin(warm_dates)]
+
+
+def ar1_baseline(history: pd.DataFrame, eval_panel: pd.DataFrame, config,
+                 vol_bars: int = 48) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Fit and trade the AR(1) baseline on one window of a split.
+
+    One call produces both the forecasts and the book, so a caller that wants the
+    baseline in its figures and tables does not have to repeat the split plumbing.
+    The forecast is fitted on ``history`` (strictly earlier bars) and evaluated on
+    ``eval_panel``; the book uses the ``config``'s own ``forecast_vol`` settings, so
+    it is the same rule, costs and cadence the fitted models trade. The rolling
+    volatility is seeded from the trailing ``vol_bars`` AR(1) predictions of
+    ``history`` only, never from the evaluated window.
+
+    Args:
+        history: Panel of bars strictly before the evaluated window.
+        eval_panel: Panel rows to forecast and trade.
+        config: Pipeline config; supplies ``forecast_vol``, ``refit_every``,
+            ``window_train_bars``, ``target_col``, ``embargo`` and ``ppy``.
+        vol_bars: Trailing bars of ``history`` used to seed the volatility estimate.
+
+    Returns:
+        ``(preds, book)`` — the evaluated panel with ``pred`` / ``pred_mean``, and
+        the ``forecast_vol_scaled`` book frame.
+    """
+    kwargs = dict(refit_every=config.refit_every, window=config.window_train_bars,
+                  embargo=config.embargo)
+    panel = pd.concat([history, eval_panel])
+    preds, _ = ar1_forecast(panel, config.target_col, **kwargs)
+    start, end = eval_panel.index.get_level_values("date").min(), \
+        eval_panel.index.get_level_values("date").max()
+    dates = preds.index.get_level_values("date")
+    preds = preds[(dates >= start) & (dates <= end)]
+    if preds.empty:
+        raise ValueError("the AR(1) baseline produced no predictions in the window")
+
+    warmup = ar1_warmup(history, config.target_col, vol_bars, **kwargs)
+    book = ar1_book(preds, config.forecast_vol, ppy=config.ppy,
+                    vol_history=None if warmup.empty else warmup)
+    return preds, book
 
 
 def r2_against(preds: pd.DataFrame, benchmark: str = "pred_mean",

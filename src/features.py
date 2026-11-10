@@ -1,4 +1,4 @@
-"""Technical features and the feature/label correlation report (v2-owned).
+"""Technical features and the feature/label correlation report.
 
 Semantics match the validated reference doc ``agents/feature_engineering.md``:
 every indicator lookback counts bars, so a 14-bar RSI is 14 weekly observations

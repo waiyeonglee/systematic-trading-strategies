@@ -121,7 +121,6 @@ def test_is_degenerate_detects_constant_predictions():
 
 
 def test_cache_key_ignores_rebalance_cadence(tmp_path):
-    panel = _panel()
     config = _config()
     spec = ModelSpec.for_family("ridge", 1.0)
     other = replace(config, forecast_vol=replace(config.forecast_vol, rebalance="12w"))
@@ -167,3 +166,23 @@ def test_book_space_is_the_declared_product():
     # without a volatility target the cap cannot bind, so 5 of the 45 cells repeat
     # an otherwise identical book and are simulated once
     assert len({worker.effective_key(knobs) for _, knobs, _ in worker.BOOKS}) == 40
+
+
+def test_ranking_tie_break_does_not_depend_on_completion_order():
+    """Tied books must resolve to the same winner however joblib returns the rows."""
+    import run_study
+
+    spec = ModelSpec.for_family("ridge", 1.0)
+    tasks = [(spec, "4w", 4, "ME")]
+    tied = 1.176311
+    rows = [dict(model=spec.name, rebalance="4w", look_ahead=4, refit="ME",
+                 book=book, net_sharpe=tied, degenerate=False)
+            for book in ("w48_vtoff_rf3_cap3.0", "w48_vtoff_rf3_cap1.0",
+                         "w48_vtoff_rf3_cap2.0", "w48_vtoff_rf3_cap0.5")]
+
+    first = run_study._ranking_frame([dict(row) for row in rows], tasks)
+    shuffled = [rows[2], rows[0], rows[3], rows[1]]
+    second = run_study._ranking_frame([dict(row) for row in shuffled], tasks)
+
+    assert first["book"].tolist() == second["book"].tolist()
+    assert first.iloc[0]["book"] == "w48_vtoff_rf3_cap0.5"   # alphabetical tie-break

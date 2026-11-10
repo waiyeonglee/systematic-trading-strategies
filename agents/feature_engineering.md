@@ -1,10 +1,8 @@
-# Feature engineering — v2-owned implementation reference
+# Feature engineering — implementation reference
 
-What the v2 feature pipeline actually does, owned by this project
-(`trend-following-strategy-v2`). Copied from the reference project
-(`../trend-following-strategy/agents/feature_engineering.md`) and refreshed for v2
-conventions; staleness-checked against both reference code and outputs, then
-re-implemented fresh in this project's `src/`. Implementation lives in
+What the feature pipeline actually does, owned by this project. Staleness-checked
+against the reference code and outputs, then re-implemented fresh in this project's
+`src/`. Implementation lives in
 `src/features.py`, `src/labels.py`, `src/utils/` and the `scripts/build_features.py`
 command; the panel is consumed by both the rule path (trend signals) and the
 fitted-model path (walk-forward ridge / elastic-net) in later steps.
@@ -19,7 +17,7 @@ fitted-model path (walk-forward ridge / elastic-net) in later steps.
 
 Universe (`src/utils/config.py`): 9 sector ETFs `CORE_ETFS` (XLB XLE XLF XLI XLK XLP
 XLU XLV XLY) + 7 diversifiers `CROSS_ASSET_ETFS` (TLT IEF GLD DBC UUP EFA EEM) =
-**16 tradables**; SPY is benchmark only. **Fixed dataset window (v2 convention):**
+**16 tradables**; SPY is benchmark only. **Fixed dataset window:**
 end inclusive `2026-01-01`, fetch end exclusive `2026-01-02` — data ends
 2025-12-26 (weekly bars) / 2025-12-31 (fear-greed), nothing beyond. GLD starts
 2004-11, DBC 2006-02, UUP 2007-03; the others start 2004-01.

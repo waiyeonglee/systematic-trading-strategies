@@ -1,0 +1,18 @@
+micro - forecast quality per refit arm (validation and test)
+============================================================
+
+arm             window  model            combo                oos_r2  direction_acc  rank_ic_mean  rank_ic_t  corr  
+--------------  ------  ---------------  -------------------  ------  -------------  ------------  ---------  ------
+ME *            val     enet_a0.001_r1   la4_4w_refitME       0.0420  0.5828         0.0829        3.0690     0.1509
+QE              val     enet_a0.01_r0.5  la12_weekly_refitQE  0.0699  0.6320         0.0792        3.2069     0.1340
+AR(1) baseline  val     ar1              la4_4w_refitME       0.0227  0.5702         0.1076        4.5974     0.0890
+ME *            test    enet_a0.001_r1   la4_4w_refitME       0.0562  0.5735         0.0609        2.1025     0.1356
+QE              test    enet_a0.01_r0.5  la12_weekly_refitQE  0.1710  0.6550         0.1409        5.3018     0.2129
+AR(1) baseline  test    ar1              la4_4w_refitME       0.0536  0.5801         0.1037        3.8967     0.1194
+
+oos_r2 = 1 - SSE/sum(y^2) against a zero forecast on the same rows;
+rank_ic_* = cross-sectional Spearman IC of the prediction vs the label.
+* = the arm selected on the validation window (ME); the test
+window is reported for both arms but selects nothing.
+AR(1) baseline = one-lag AR(1) on the trailing return, no features,
+traded with the selected arm's own book, costs and refit cadence.

@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from baselines import ar1_baseline
 from labels import TARGET_COL
 from metrics import (comparison_table, cumulative_return, equal_weight_universe,
                      forecast_metrics, max_drawdown, oos_r2_benchmarks,
@@ -30,6 +31,11 @@ from utils.config import DEFAULT_SEED, duration_slug, duration_to_bars, periods_
 from plots import plot_run  # noqa: E402  (matplotlib is imported by this module)
 
 REFIT_SLUGS = {"ME": "mrefit", "QE": "qrefit"}
+
+# Label of the AR(1) baseline inside the figure benchmark dicts, and the trailing
+# bars of history used to seed its rolling volatility (covers the longest vol window).
+AR1_LABEL = "AR(1) baseline"
+AR1_VOL_WARMUP_BARS = 48
 
 
 def _vol_target_segment(params: ForecastVolParams) -> str:
@@ -77,7 +83,7 @@ class PipelineConfig:
     grid: tuple[ModelSpec, ...] = ()
     seed: int = DEFAULT_SEED
     target_col: str = TARGET_COL
-    features: str = "macro"
+    features: str = "micro"
     forecast_vol: ForecastVolParams = ForecastVolParams()
     trend: TrendParams = TrendParams()
 
@@ -290,7 +296,6 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
     book = portfolios[config.strategy]
     spy = spy_buy_and_hold(benchmark_close, book.index)
     benchmarks = {"Equal-weight": equal_weight_universe(preds), "SPY B&H": spy}
-    comparison = {f"{selected_name} (net)": book["net_ret"], **benchmarks}
     verdict = trend_success_verdict(book["net_ret"], benchmarks, config.ppy)
 
     # validation-window book of the selected model: reported with the volatility
@@ -301,12 +306,23 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
     val_benchmarks = {"Equal-weight": equal_weight_universe(selection["preds"]),
                       "SPY B&H": spy_buy_and_hold(benchmark_close, val_portfolio.index)}
 
+    # AR(1) baseline for the figures only: fitted on the same split and traded with
+    # the same book, so every published figure can be read against a no-feature rule.
+    # It is deliberately kept out of ``benchmarks``, which feed the success gate and
+    # comparison.csv.
+    _, ar1_val_book = ar1_baseline(train, val, config, AR1_VOL_WARMUP_BARS)
+    _, ar1_test_book = ar1_baseline(history, test, config, AR1_VOL_WARMUP_BARS)
+    ar1_test_returns = ar1_test_book["net_ret"].reindex(book.index)
+    ar1_val_returns = ar1_val_book["net_ret"].reindex(val_portfolio.index)
+
     tag = run_tag(config, test_start, test_end, window_val)
     results = dict(windows=windows, train=train, val=val, test=test,
                    ranking=ranking, selected=selected_name, preds=preds,
                    portfolio=book, benchmarks=benchmarks, verdict=verdict,
                    val_portfolio=val_portfolio, val_preds=selection["preds"],
                    val_benchmarks=val_benchmarks,
+                   plot_benchmarks={**benchmarks, AR1_LABEL: ar1_test_returns},
+                   val_plot_benchmarks={**val_benchmarks, AR1_LABEL: ar1_val_returns},
                    run_tag=tag, window_val=window_val, config=config,
                    benchmark_close=benchmark_close)
 
@@ -447,9 +463,8 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
     # time series + report figures: series stay in the run folder, the canonical
     # report figures go to results/plots/<phase>/ for both measured windows
     # (test and validation); the transient per-run plots/ folder is removed after.
-    save_series(out_dir, "test", book, preds, benchmarks)
-    save_series(out_dir, "val", results["val_portfolio"], results["val_preds"],
-                results["val_benchmarks"])
+    save_series(out_dir, "test", book, benchmarks)
+    save_series(out_dir, "val", results["val_portfolio"], results["val_benchmarks"])
     plot_run(results, out_dir)
 
     for phase, window in (report_phases_for(results) if publish_figures else ()):
@@ -463,7 +478,7 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
 
 
 def save_series(out_dir: Path, window: str, book: pd.DataFrame,
-                preds: pd.DataFrame, benchmarks: dict[str, pd.Series]) -> Path:
+                benchmarks: dict[str, pd.Series]) -> Path:
     """Persist the per-bar book, per-ticker weights/orders and benchmark returns.
 
     The figures in ``plots/`` are drawn from these series, so a report can re-plot
@@ -473,7 +488,6 @@ def save_series(out_dir: Path, window: str, book: pd.DataFrame,
         out_dir: Run folder; series land in ``<out_dir>/series/``.
         window: ``"test"`` or ``"val"`` — prefixes the file names.
         book: The book frame (carries ``weights_wide`` / ``orders_wide``).
-        preds: Predictions panel (unused here, kept for signature symmetry).
         benchmarks: Label -> benchmark return series.
 
     Returns:
@@ -498,20 +512,17 @@ def selected_spec(config: PipelineConfig, name: str) -> ModelSpec:
     raise ValueError(f"selected model {name!r} is not in the configured grid")
 
 
-def run_parameters(results: dict, feature_cols: list[str] | None = None) -> dict:
+def run_parameters(results: dict, feature_cols: list[str]) -> dict:
     """Plain mapping of the effective run settings, for ``run_config.yaml``.
 
-    ``feature_cols`` is the actual input list the run used; ``None`` falls back to the
-    21-column v2 set, so older callers keep the record they always had. The macro
-    study passes its 114 interaction columns.
+    ``feature_cols`` is the actual input list the run used: the 19 firm features for
+    the ``micro`` block or the 114 interaction columns for the ``macro`` block.
     """
-    from features import feature_columns
     from utils.config import END_DATE_INCLUSIVE, START_DATE
 
     config: PipelineConfig = results["config"]
     windows = results["windows"]
-    columns = (list(feature_cols) if feature_cols is not None
-               else feature_columns(use_fear_greed=True))
+    columns = list(feature_cols)
     return {
         "run": results["run_tag"],
         "seed": config.seed,

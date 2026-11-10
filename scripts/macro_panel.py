@@ -1,8 +1,9 @@
 """Runnable panel for the joint feature-set study.
 
-Firm block: the 19 asset-level features (the 21-column v2 set minus the two
-market-wide columns, ``fear_greed_index`` and ``spy_return_1bar``). Macro block: the
-five :data:`macro.MACRO_COLUMNS` plus a constant. The panel always carries the
+Firm block: the 19 asset-level features (the price/volume features with the two
+market-wide columns ``fear_greed_index`` and ``spy_return_1bar`` removed, since those
+become macro state, plus the two trend inputs). Macro block: the five
+:data:`macro.MACRO_COLUMNS` plus a constant. The panel always carries the
 Kronecker product of the two — 19 x (5 + 1) = 114 columns — and :func:`feature_columns`
 selects the block a model reads:
 
@@ -34,7 +35,7 @@ from macro import MACRO_COLUMNS, interaction_columns, kron_features, macro_state
 from utils.config import BENCHMARKS, TRADABLE_ETFS
 from utils.paths import raw_data_dir
 
-# Market-wide columns of the v2 set; they become macro state instead of firm features.
+# Market-wide columns of the panel set; they become macro state instead of firm features.
 MARKET_WIDE = ("fear_greed_index", "spy_return_1bar")
 
 FIRM_COLUMNS = ([name for name in FEATURES if name not in MARKET_WIDE]

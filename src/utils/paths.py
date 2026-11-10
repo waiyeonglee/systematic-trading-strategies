@@ -1,4 +1,4 @@
-"""Filesystem locations used by the v2 project."""
+"""Filesystem locations used by this project."""
 
 from __future__ import annotations
 

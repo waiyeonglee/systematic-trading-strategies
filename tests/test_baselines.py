@@ -5,7 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from baselines import ar1_forecast, r2_against
+from baselines import ar1_book, ar1_forecast, ar1_warmup, r2_against
+from portfolio import ForecastVolParams
 
 
 def _panel(scale_after: pd.Timestamp | None = None, scale: float = 1.0) -> pd.DataFrame:
@@ -63,3 +64,28 @@ def test_r2_against_mean_is_positive_when_the_model_is_closer():
         "pred_mean": [0.0, 0.0, 0.0],
     })
     assert r2_against(preds, "pred_mean", "fwd_ret_4bar") == 1.0
+
+
+def test_warmup_predictions_precede_the_evaluation_window():
+    """Used as a vol seed: the history ends where the traded window begins."""
+    panel = _panel()
+    dates = panel.index.get_level_values("date").unique().sort_values()
+    eval_start = dates[150]
+    history = panel[panel.index.get_level_values("date") < eval_start]
+    warm = ar1_warmup(history, "fwd_ret_4bar", bars=20, window=60, embargo=4,
+                      min_obs=5)
+    assert not warm.empty
+    assert warm.index.get_level_values("date").max() < eval_start
+    assert warm.index.get_level_values("date").nunique() == 20
+
+
+def test_ar1_book_charges_costs_on_the_predictions():
+    """The baseline is traded by the study's book, so its returns are net of costs."""
+    panel = _panel()
+    preds, _ = ar1_forecast(panel, "fwd_ret_4bar", window=60, embargo=4, min_obs=5)
+    preds = preds.assign(fwd_ret=preds["fwd_ret_4bar"])
+    book = ar1_book(preds, ForecastVolParams(vol_window=8, vol_min_periods=4,
+                                             rebalance="4w"), ppy=52)
+    assert {"net_ret", "gross_ret", "cost"} <= set(book.columns)
+    assert (book["cost"] >= 0).all()
+    assert book["net_ret"].abs().sum() > 0

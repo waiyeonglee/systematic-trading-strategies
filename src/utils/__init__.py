@@ -1,1 +1,1 @@
-"""Utility package for trend-following-strategy-v2."""
+"""Utility package for this project."""

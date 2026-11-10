@@ -52,7 +52,7 @@ for _path in (PROJECT_ROOT / "src", PROJECT_ROOT / "scripts"):
         sys.path.insert(0, str(_path))
 
 import run_study
-from macro_panel import FIRM_COLUMNS, FEATURE_SETS, build_panel, feature_columns
+from macro_panel import FIRM_COLUMNS, FEATURE_SETS, build_panel
 from models import specs_from_config
 from run_backtest import GRID_ENTRIES
 from study_worker import VALIDATION

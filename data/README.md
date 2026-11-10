@@ -1,6 +1,6 @@
 # Data
 
-Standalone dataset for `trend-following-strategy-v2`. Everything the pipeline reads or writes is grouped by role.
+Standalone dataset for this project. Everything the pipeline reads or writes is grouped by role.
 
 ```
 data/
@@ -15,7 +15,7 @@ data/
   README.md
 ```
 
-## Fixed dataset window (v2 convention)
+## Fixed dataset window
 
 - **End date is fixed at 2026-01-01.** The last weekly bar is the final complete
   week ending on or before 2025-12-26 (2025-12-31 for the Fear & Greed daily series).
@@ -127,6 +127,6 @@ Rebuilt by `scripts/build_features.py` from `raw/weekly/` + `additional/fear-gre
 
 ## Notes
 
-- `data/features/` from the v1/v2 reference projects is **not** carried over;
+- `data/features/` from the reference project is **not** carried over;
   derived feature tables are rebuilt by this project's own pipeline.
 - Old backtest/model results from the reference project are **not** carried over.
