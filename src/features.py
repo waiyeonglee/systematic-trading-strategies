@@ -2,8 +2,10 @@
 
 Semantics match the validated reference doc ``agents/feature_engineering.md``:
 every indicator lookback counts bars, so a 14-bar RSI is 14 weekly observations
-on weekly data. The feature set is the 19 base + 2 trend-following columns
-(21 in total with Fear & Greed enabled).
+on weekly data. ``FEATURES`` is the raw inspection / legacy single-backtest list:
+17 asset-level columns plus the two market-wide helper columns
+``fear_greed_index`` and ``spy_return_1bar``. The current micro/macro study removes
+those market-wide columns from the firm block; see ``scripts/macro_panel.py``.
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ from labels import LABEL
 from utils.checks import require_columns
 from utils.config import CORE_ETFS, periods_per_year
 
+# Raw feature-frame columns. The last two are market-wide helpers, not part of the
+# current study's 19-column ``micro`` firm block.
 FEATURES = [
     "return_1bar", "return_2bar", "return_3bar", "return_4bar",
     "return_12bar", "return_26bar", "return_52bar",
@@ -40,15 +44,19 @@ RETURN_PERIODS = (1, 2, 3, 4, 12, 26, 52)
 
 
 def feature_columns(use_fear_greed: bool = True) -> list[str]:
-    """Return the feature list, minus any alternative column that is switched off.
+    """Return the legacy single-backtest feature list.
+
+    This helper is used by ``scripts/run_backtest.py`` and the inspection
+    ``features.csv`` path. The current joint study does not use this as its ``micro``
+    definition; it uses ``scripts.macro_panel.FIRM_COLUMNS`` instead, where
+    ``fear_greed_index`` and ``spy_return_1bar`` are excluded from the firm block.
 
     Args:
         use_fear_greed: include the Fear & Greed index feature.
 
     Returns:
-        The subset of :data:`FEATURES` (+ :data:`TREND_FEATURES`) the model / rule may
-        use. The trend features are always on: they are the trend-following inputs of
-        this project.
+        The subset of :data:`FEATURES` plus :data:`TREND_FEATURES` for the legacy
+        path. The trend features are always on.
     """
     excluded = () if use_fear_greed else ALTERNATIVE_FEATURES["fear_greed"]
     base = [name for name in FEATURES if name not in excluded]
@@ -111,8 +119,8 @@ def build_feature_frame(
         benchmark_prices: Benchmark OHLCV frame used for the market-return feature.
 
     Returns:
-        Feature-only panel indexed by ``(date, ticker)`` with ``FEATURES`` and
-        ``TREND_FEATURES``.
+        Feature-only raw panel indexed by ``(date, ticker)`` with ``FEATURES`` and
+        ``TREND_FEATURES``. Downstream study code may select a narrower firm block.
 
     Raises:
         ValueError: if ``frequency`` is unsupported or no price series is supplied.

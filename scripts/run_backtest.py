@@ -87,14 +87,15 @@ REFIT_OPTIONS = ("ME", "QE")      # monthly / quarterly
 
 
 def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
-    """Build the runnable panel from the raw weekly CSVs (design conventions).
+    """Build the legacy single-backtest panel from the raw weekly CSVs.
 
     Returns:
         ``(panel, benchmark_close, feature_cols)`` where the panel is indexed by
-        ``(date, ticker)`` with the 21 features, ``fwd_ret`` (1-bar, earned by the
-        book) and the 1/4/12-bar training labels; rows without a realised label
-        are dropped, so the panel ends at 2025-09-26 (13-bar 12-week label tail, shared by
-        all look-aheads).
+        ``(date, ticker)`` with the raw 21-feature list from ``src.features``,
+        ``fwd_ret`` (1-bar, earned by the book) and the 1/4/12-bar training labels.
+        Rows without a realised label are dropped, so the panel ends at 2025-09-26
+        (13-bar 12-week label tail, shared by all look-aheads). The joint
+        micro/macro study builds its feature blocks in ``scripts/macro_panel.py``.
     """
     fear_greed = load_fear_greed_index(FEAR_GREED_PATH)
     raw_dir = raw_data_dir("weekly")
@@ -224,8 +225,8 @@ def main() -> None:
 
     seed_everything()
     panel, benchmark_close, feature_cols = build_panel()
-    # this CLI backtest reads the raw 21-feature panel restricted to the 19 firm
-    # model inputs, i.e. the micro block
+    # This legacy CLI reads the raw 21-feature list. The current study's 19-column
+    # micro firm block is defined separately in scripts/macro_panel.py.
     config = default_config(args.horizon, vol_target=not args.no_vol_target,
                             features="micro",
                             model=args.model, vol_window=args.vol_window,
