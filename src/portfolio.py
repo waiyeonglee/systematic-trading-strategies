@@ -5,7 +5,7 @@ Two rules are implemented and picked by ``portfolio.strategy``:
 * ``forecast_vol_scaled`` divides every predicted return by its own forecast standard
   deviation, normalises the signals to a gross exposure of 1.0 and trades them long and
   short (Equation 15 of Chinco, Clark-Joseph & Ye, 2019). Each rebalance is only executed
-  when its net expected gain beats its total trading cost (:func:`cost_gated_orders`).
+  when its net expected gain beats its total trading cost.
 * ``trend_long_flat`` longs every asset whose trend rule is on, weights them by inverse
   realized volatility to a gross exposure of 1.0, holds cash when nothing is on-signal
   and rebalances on a fixed cadence with no cost gate (documented reference).
@@ -186,50 +186,24 @@ def historical_realized_vol(same_bar_returns: pd.DataFrame,
     return wide.shift(1).rolling(params.vol_window, min_periods=params.vol_min_periods).std(ddof=1)
 
 
-def target_weights(predictions: pd.Series, forecast_vol: pd.Series) -> pd.Series:
-    """Forecast-scaled target weights for a single decision date.
-
-    Each eligible prediction is divided by its forecast volatility, then the ratios are
-    divided by their absolute sum so the absolute weights add up to 1.0 (100% gross, no
-    leverage). Weights are signed: positive is long, negative is short.
-    """
-    vol_floor, min_signal = 0.00001, 0.0
-    preds = pd.to_numeric(predictions, errors="coerce").astype(float)
-    vols = pd.to_numeric(forecast_vol.reindex(preds.index), errors="coerce").astype(float)
-
-    eligible = preds.notna() & np.isfinite(preds) & vols.notna() & np.isfinite(vols) & (vols > 0)
-    eligible &= preds.abs() > min_signal
-
-    weights = pd.Series(0.0, index=preds.index)
-    weights[eligible] = preds[eligible] / vols[eligible].clip(lower=vol_floor)
-    gross = weights.abs().sum()
-    return weights / gross if gross > 0 else weights
-
-
-def trend_target_weights(signals: pd.Series, realized_vol: pd.Series,
-                         shorting: bool = False) -> pd.Series:
-    """Long/flat or long/short target weights for one decision date.
+def trend_target_weights(signals: pd.Series,
+                         realized_vol: pd.Series) -> pd.Series:
+    """Long/flat target weights for one decision date.
 
     Every asset with a valid trend signal and finite positive realized volatility is
     weighted by ``1 / vol``; the weights are normalised so the absolute weights sum to
     1.0 (100% gross, no leverage).
 
-    * ``shorting=False`` (long/flat): only on-signal assets (``signals > 0.5``) get
-      weight; off-signal assets are zero and when nothing is on the target is all cash.
-    * ``shorting=True`` (long/short): ``signals > 0.5`` is long, ``signals < -0.5`` is
-      short, zero/missing is flat; gross is still normalised to 100%.
+    Only on-signal assets (``signals > 0.5``) get weight; off-signal assets are zero
+    and when nothing is on the target is all cash.
     """
     vol_floor = 1e-5
     sig = pd.to_numeric(signals, errors="coerce").astype(float)
     vols = pd.to_numeric(realized_vol.reindex(sig.index), errors="coerce").astype(float)
     valid = sig.notna() & vols.notna() & np.isfinite(vols) & (vols > 0)
     weights = pd.Series(0.0, index=sig.index)
-    if shorting:
-        on = valid & (sig.abs() > 0.5)
-        weights[on] = sig[on] / vols[on].clip(lower=vol_floor)
-    else:
-        on = valid & (sig > 0.5)
-        weights[on] = 1.0 / vols[on].clip(lower=vol_floor)
+    on = valid & (sig > 0.5)
+    weights[on] = 1.0 / vols[on].clip(lower=vol_floor)
     gross = weights.abs().sum()
     return weights / gross if gross > 0 else weights
 
@@ -254,31 +228,6 @@ def orders_for_target(current_weights: pd.Series, desired_weights: pd.Series,
     tickers = current_weights.index.union(desired_weights.index)
     return (desired_weights.reindex(tickers, fill_value=0.0)
             - current_weights.reindex(tickers, fill_value=0.0)) * equity_usd
-
-
-def cost_gated_orders(orders: pd.Series, expected_returns: pd.Series,
-                      params: ForecastVolParams) -> pd.Series:
-    """Keep the rebalance legs only if the whole reallocation's net gain beats its cost.
-
-    The candidate legs of one rebalance are judged as a single reallocation: the gate
-    executes every candidate leg (``orders`` unchanged) iff
-
-        sum(order * pred(d-1)) > cost_gate_multiple * sum(order_cost_usd(order))
-
-    Otherwise no leg is executed and the book keeps its drifted weights. A missing
-    decision (NaN pred) makes the reallocation impossible to evaluate, so the entire
-    rebalance is skipped. The first build from cash is exempt from the gate (handled by
-    the caller).
-    """
-    orders = orders.fillna(0.0)
-    pred = expected_returns.reindex(orders.index).astype(float)
-    if pred.isna().any():          # defensive guard: a missing signal freezes the whole book
-        return pd.Series(0.0, index=orders.index)
-    net_gain = float((orders * pred).sum())
-    total_cost = float(sum(order_cost_usd(float(v), params) for v in orders if v != 0))
-    if net_gain > params.cost_gate_multiple * total_cost:
-        return orders
-    return pd.Series(0.0, index=orders.index)
 
 
 def rebalance_dates(dates: pd.DatetimeIndex, every: str = "4w") -> pd.DatetimeIndex:
@@ -374,7 +323,7 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
     ``price[d+1] / price[d] - 1`` that the model fitted at ``d-1``. The book earns each
     bar's ``fwd_ret``, so nothing from the future is used. Between rebalances positions
     drift; on each rebalance date the book is marked to market and traded back to the
-    target, which restores gross exposure to 100%. :func:`cost_gated_orders` keeps the
+    target, which restores gross exposure to 100%. The vectorized cost gate keeps the
     full set of legs only when the reallocation's net expected gain beats its total cost.
     The first build from cash is exempt: deploying forgoes nothing and always executes.
 
@@ -558,7 +507,6 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
 
 def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
                           initial_capital_usd: float = 100_000.0,
-                          shorting: bool = False,
                           vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
     """Trade the trend rule, charging broker costs per executed order.
 
@@ -623,8 +571,7 @@ def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
         equity_before = equity
 
         if date in rebalances:
-            target = trend_target_weights(decisions.loc[date], realized_vol.loc[date],
-                                          shorting=shorting)
+            target = trend_target_weights(decisions.loc[date], realized_vol.loc[date])
             orders = orders_for_target(weights, target, equity_before).fillna(0.0)
             costs = float(sum(order_cost_usd(value, params) for value in orders if value != 0))
             weights = (weights.add(orders / equity_before, fill_value=0.0)
@@ -672,14 +619,6 @@ def _trend_long_flat(preds: pd.DataFrame, config, *, apply_vol_target: bool = Tr
                                  vol_history=vol_history)
 
 
-def _trend_long_short(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
-                      vol_history: pd.DataFrame | None = None,
-                      forecast_vol: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Long the on-signal assets, short the off-signal ones (long/short variant)."""
-    return build_trend_portfolio(preds, config.trend, config.initial_capital_usd,
-                                 shorting=True, vol_history=vol_history)
-
-
 def _forecast_vol_scaled(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
                          vol_history: pd.DataFrame | None = None,
                          forecast_vol: pd.DataFrame | None = None) -> pd.DataFrame:
@@ -699,7 +638,6 @@ def _forecast_vol_scaled(preds: pd.DataFrame, config, *, apply_vol_target: bool 
 STRATEGIES: dict[str, Callable[..., pd.DataFrame]] = {
     "forecast_vol_scaled": _forecast_vol_scaled,
     "trend_long_flat": _trend_long_flat,
-    "trend_long_short": _trend_long_short,
 }
 
 STRATEGY_CHOICES = tuple(STRATEGIES)
