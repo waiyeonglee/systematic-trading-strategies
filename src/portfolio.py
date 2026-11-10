@@ -30,7 +30,7 @@ class ForecastVolParams:
         vol_min_periods: Past predictions needed before any volatility is usable.
         rebalance: How often the holdings are traded back to the target weights:
             ``"daily"``, ``"weekly"``, ``"4w"`` or ``"12w"``.
-        broker: ``"moomoo"`` or ``"ibkr"``; selects the commission model.
+        broker: ``"moomoo"``; selects the commission model.
         cost_bps: Extra proportional cost charged on every executed order, in basis points.
         cost_gate_multiple: An order leg is only executed when its expected gain exceeds
             this multiple of the order's full cost. ``1.0`` means the trade must pay for
@@ -63,8 +63,8 @@ class ForecastVolParams:
             raise ValueError(
                 f"rebalance must be 'daily', 'weekly', '4w' or '12w', got {self.rebalance!r}"
             )
-        if self.broker not in ("moomoo", "ibkr"):
-            raise ValueError(f"broker must be 'moomoo' or 'ibkr', got {self.broker!r}")
+        if self.broker != "moomoo":
+            raise ValueError(f"broker must be 'moomoo', got {self.broker!r}")
         if self.vol_window < 2 or not 2 <= self.vol_min_periods <= self.vol_window:
             raise ValueError(
                 "volatility needs 2 <= vol_min_periods <= vol_window, got "
@@ -112,8 +112,8 @@ class TrendParams:
             raise ValueError(
                 f"rebalance must be 'daily', 'weekly', '4w' or '12w', got {self.rebalance!r}"
             )
-        if self.broker not in ("moomoo", "ibkr"):
-            raise ValueError(f"broker must be 'moomoo' or 'ibkr', got {self.broker!r}")
+        if self.broker != "moomoo":
+            raise ValueError(f"broker must be 'moomoo', got {self.broker!r}")
         if self.vol_window < 2 or not 2 <= self.vol_min_periods <= self.vol_window:
             raise ValueError(
                 "volatility needs 2 <= vol_min_periods <= vol_window, got "
@@ -144,17 +144,6 @@ def moomoo_commission(trade_value_usd: float) -> float:
     return max(0.0003 * value, 0.77) * 1.09
 
 
-def ibkr_commission(trade_value_usd: float) -> float:
-    """Commission for one IBKR order: the smaller of a flat USD 1 or 1% of the trade."""
-    value = abs(float(trade_value_usd))
-    if value <= 0:
-        return 0.0
-    return min(1.0, 0.01 * value)
-
-
-BROKER_COMMISSIONS = {"moomoo": moomoo_commission, "ibkr": ibkr_commission}
-
-
 def order_cost_usd(trade_value_usd: float, params: ForecastVolParams) -> float:
     """Cost of one executed order: broker commission plus ``cost_bps`` on the trade value.
 
@@ -163,7 +152,7 @@ def order_cost_usd(trade_value_usd: float, params: ForecastVolParams) -> float:
     value = abs(float(trade_value_usd))
     if value <= 0:
         return 0.0
-    return BROKER_COMMISSIONS[params.broker](value) + params.cost_bps / 1e4 * value
+    return moomoo_commission(value) + params.cost_bps / 1e4 * value
 
 
 def historical_forecast_vol(predictions: pd.DataFrame,
@@ -368,12 +357,7 @@ def _commission_usd(values: "np.ndarray", params: ForecastVolParams) -> float:
     if not mask.any():
         return 0.0
     live = magnitude[mask]
-    if params.broker == "moomoo":
-        per_order = np.maximum(0.0003 * live, 0.77) * 1.09
-    elif params.broker == "ibkr":
-        per_order = np.minimum(1.0, 0.01 * live)
-    else:  # unknown broker: fall back to the scalar implementation
-        return float(sum(order_cost_usd(value, params) for value in live))
+    per_order = np.maximum(0.0003 * live, 0.77) * 1.09
     return float(per_order.sum() + params.cost_bps / 1e4 * live.sum())
 
 

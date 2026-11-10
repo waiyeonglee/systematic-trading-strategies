@@ -160,7 +160,7 @@ class Portfolio:
                                         # (prediction frequency locked to cadence)
     gross_exposure: float = 1.0         # sum |weights| = 100% when any signal is on
     initial_capital_usd: float = 100_000.0
-    broker: str = "moomoo"              # moomoo | ibkr (src/portfolio.py rates)
+    broker: str = "moomoo"              # Moomoo commission model in src/portfolio.py
     cost_bps: float = 0.0               # moomoo commissions only (5 bps placeholder removed)
     # Overlay knobs — ranked as part of the 45-cell book space (§7); overlay-free
     # inside run_pipeline's own model ranking.
