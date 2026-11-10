@@ -188,6 +188,11 @@ def walk_forward_predict(
         if window is not None:
             past = past[-window:]
         train_rows = full.loc[full.index.get_level_values("date").isin(past)]
+        # The panel keeps rows whose target is not yet realized (see
+        # ``macro_panel.build_panel``); a fit cannot use them, so drop them here. With
+        # ``embargo == horizon`` this removes nothing, but it keeps the contract
+        # explicit rather than relying on the panel having been pre-filtered.
+        train_rows = train_rows[train_rows[target_col].notna()]
 
         model = spec.build(seed)
         with warnings.catch_warnings():

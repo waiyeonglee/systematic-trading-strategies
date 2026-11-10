@@ -69,8 +69,12 @@ def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
         ``(panel, benchmark_close, feature_cols)`` where the panel is indexed by
         ``(date, ticker)`` with the 114 interaction columns, ``fwd_ret`` and the
         1/4/12-bar training labels; ``feature_cols`` lists the 114 model inputs in
-        build order (the ``macro`` block; see :func:`feature_columns`). Rows without a
-        realised label or a macro value are dropped.
+        build order (the ``macro`` block; see :func:`feature_columns`). Rows without
+        the features, a macro value, or the close-to-close return used for
+        mark-to-market are dropped; rows whose *training target* is not yet realized
+        are kept, because the evaluation window ends one bar before the panel, not
+        ``H + 1`` bars before it. Dropping those rows here is what used to truncate
+        the test window by the longest label horizon plus the execution lag.
     """
     prices = load_ohlcv(raw_data_dir("weekly"), TRADABLE_ETFS)
     benchmark = load_ohlcv(raw_data_dir("weekly"), BENCHMARKS)[BENCHMARKS[0]]
@@ -81,13 +85,19 @@ def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
                               ).sort_index()
     labels = make_labels(close_wide)
 
+    # ``how="left"``: the labels are training targets, not a filter on the panel. A row
+    # dated t carries ``fwd_ret_12bar = price[t+13]/price[t+1] - 1``, so an inner join
+    # would silently cut the last H+1 bars off every split, including the test window
+    # of a model that only uses a 4-bar target. Keep the panel whole and drop
+    # unlabelled rows inside the training slice instead (``models.walk_forward_predict``).
     base = (features[FIRM_COLUMNS]
-            .join(labels, how="inner")
-            .dropna()
+            .join(labels, how="left")
+            .dropna(subset=FIRM_COLUMNS + ["fwd_ret"])
             .sort_index())
     state = macro_state(base.index.get_level_values("date"))
     interactions = kron_features(base, FIRM_COLUMNS, state)
-    panel = pd.concat([base, interactions], axis=1).dropna().sort_index()
+    panel = pd.concat([base, interactions], axis=1).dropna(subset=list(interactions.columns))
+    panel = panel.sort_index()
 
     benchmark_close = benchmark["Close"].astype(float).sort_index()
     benchmark_close.index = pd.to_datetime(benchmark_close.index)
