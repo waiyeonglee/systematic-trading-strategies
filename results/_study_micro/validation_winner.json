@@ -1,0 +1,71 @@
+{
+  "phase": "joint-ranking",
+  "features": {
+    "name": "micro",
+    "firm": 19,
+    "const": 1,
+    "macro": 0,
+    "model_columns": 19,
+    "macro_columns": []
+  },
+  "split": {
+    "train": [
+      "2011-01-01",
+      "2018-12-31"
+    ],
+    "validation": [
+      "2019-01-01",
+      "2022-12-31"
+    ],
+    "test": [
+      "2023-01-01",
+      "2025-12-31"
+    ]
+  },
+  "window": [
+    "2019-01-01",
+    "2022-12-31"
+  ],
+  "seed": 5205,
+  "window_train": "8y",
+  "candidates": {
+    "specs": 20,
+    "combos": 11,
+    "books": 45,
+    "scored": 9900
+  },
+  "model": {
+    "name": "enet_a0.001_r1",
+    "family": "enet",
+    "alpha": 0.001,
+    "l1_ratio": 1.0
+  },
+  "combo": {
+    "target": "absolute4",
+    "look_ahead": 4,
+    "rebalance": "4w",
+    "refit": "ME"
+  },
+  "book": {
+    "name": "w04_vt10_rf3_cap1.0",
+    "vol_window": 4,
+    "vol_target": 0.1,
+    "vol_rf": 0.03,
+    "vol_cap": 1.0,
+    "lev_fee": 0.0
+  },
+  "metrics": {
+    "net_sharpe": 1.1813239932590573,
+    "gross_sharpe": 1.1808379039904338,
+    "max_drawdown": -0.1651302544953348,
+    "total_return": 0.8873081655876736,
+    "ann_return": 0.17119915183410472,
+    "ann_vol": 0.14255931019180773,
+    "hit_rate": 0.6076555023923444,
+    "avg_turnover": 0.06083023522489874
+  },
+  "cache": "results/_study_micro/predictions/2019-01-01_2022-12-31/weekly_la4_refitME/enet_a0.001_r1.npz",
+  "window_train_bars": 416,
+  "ranking": "results/_study_micro/validation_ranking.csv",
+  "note": "promotion still requires the pre-registered ADR and the single test draw"
+}

@@ -20,5 +20,5 @@ __pycache__/
 .ruff_cache/
 *.log
 
-# Derived macro-interaction panel (rebuilt by scripts/build_features_macro.py)
+# Derived macro-interaction panel (rebuilt by scripts/build_features.py)
 data/features/weekly/features_macro.csv

@@ -1,8 +1,10 @@
 """Worker for the joint ranking (importable so joblib can pickle by reference).
 
-The panel, feature columns, benchmark and cache root are sent **once per worker**
-through :func:`init`; tasks then only carry a spec and its combo. That removes the
-per-task panel pickle that dominated dispatch time in the first implementation.
+The panel, the feature blocks, the benchmark and the cache root are sent **once per
+worker** through :func:`init`; tasks then only carry a spec and its combo. That removes
+the per-task panel pickle that dominated dispatch time in the first implementation.
+The worker is initialised per feature block (``micro`` or ``macro``), so one process
+only ever sees one block's columns.
 
 Each task scores a small batch of candidates through every book cell, so the fixed
 cost of a round trip is amortised over ~5 candidates (225 book cells). Cells that
@@ -67,14 +69,14 @@ _STATE: dict = {}
 
 def book_config(horizon: int, *, rebalance: str, refit: str, model: str | None,
                 book: dict, window_train: str | None = "8y",
-                grid_entries: list[dict] | None = None):
+                grid_entries: list[dict] | None = None, features: str = "macro"):
     """Config for one book cell: the candidate plus that cell's book knobs."""
     book = dict(book)
     vol_target = book.pop("vol_target", True)
     return default_config(horizon, vol_target=vol_target, model=model,
                           rebalance=rebalance, refit_every=refit,
                           window_train=window_train, grid_entries=grid_entries,
-                          **book)
+                          features=features, **book)
 
 
 def effective_key(knobs: dict) -> tuple:
@@ -89,15 +91,16 @@ def effective_key(knobs: dict) -> tuple:
             knobs["vol_cap"] if target else 1.0, knobs["lev_fee"])
 
 
-def init(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: pd.Series,
-         cache_root: Path, validation: tuple[str, str] = VALIDATION,
-         window_train: str | None = "8y",
+def init(panel: pd.DataFrame, feature_sets: dict[str, list[str]],
+         benchmark_close: pd.Series, cache_root: Path,
+         validation: tuple[str, str] = VALIDATION,
+         window_train: str | None = "8y", feature_set: str = "macro",
          grid_entries: list[dict] | None = None) -> None:
-    """Called once per worker process."""
-    _STATE.update(panel=panel, feature_cols=feature_cols,
+    """Called once per worker process; ``feature_sets`` maps a block name to its columns."""
+    _STATE.update(panel=panel, feature_sets=feature_sets,
                   benchmark_close=benchmark_close, cache_root=Path(cache_root),
                   validation=tuple(validation), window_train=window_train,
-                  grid_entries=grid_entries)
+                  feature_set=feature_set, grid_entries=grid_entries)
 
 
 def combo_slug(rebalance: str, horizon: int, refit: str) -> str:
@@ -125,7 +128,7 @@ def score_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
                     refresh: bool = False) -> list[dict]:
     """Score one (spec, combo) through every book cell."""
     panel = _STATE["panel"]
-    feature_cols = _STATE["feature_cols"]
+    feature_cols = _STATE["feature_sets"][_STATE["feature_set"]]
     cache_root = _STATE["cache_root"]
     validation = _STATE["validation"]
     window_train = _STATE["window_train"]
@@ -133,7 +136,8 @@ def score_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
 
     pred_config = book_config(horizon, rebalance=rebalance, refit=refit,
                               model=spec.name, book=dict(vol_target=False, vol_rf=0.0),
-                              window_train=window_train, grid_entries=grid_entries)
+                              window_train=window_train, grid_entries=grid_entries,
+                              features=_STATE["feature_set"])
     try:
         preds = cached_predictions(panel, feature_cols, pred_config, spec, *validation,
                                    cache_root=cache_root, refresh=refresh, verbose=False)
@@ -156,7 +160,8 @@ def score_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
         if metrics is None:
             config = book_config(horizon, rebalance=rebalance, refit=refit,
                                  model=spec.name, book=knobs,
-                                 window_train=window_train, grid_entries=grid_entries)
+                                 window_train=window_train, grid_entries=grid_entries,
+                                 features=_STATE["feature_set"])
             params = config.forecast_vol
             # the rolling forecast volatility depends only on the predictions and the
             # vol window, so five distinct windows cover all book cells
@@ -217,7 +222,7 @@ def cache_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
         (constant predictions; only a marker is written).
     """
     panel = _STATE["panel"]
-    feature_cols = _STATE["feature_cols"]
+    feature_cols = _STATE["feature_sets"][_STATE["feature_set"]]
     cache_root = _STATE["cache_root"]
     validation = _STATE["validation"]
     window_train = _STATE["window_train"]
@@ -225,7 +230,8 @@ def cache_candidate(spec: ModelSpec, rebalance: str, horizon: int, refit: str,
 
     pred_config = book_config(horizon, rebalance=rebalance, refit=refit,
                               model=spec.name, book=dict(vol_target=False, vol_rf=0.0),
-                              window_train=window_train, grid_entries=grid_entries)
+                              window_train=window_train, grid_entries=grid_entries,
+                              features=_STATE["feature_set"])
     path = cache_path(pred_config, spec.name, *validation, cache_root=cache_root)
     before = path.stat().st_mtime if path.exists() else None
     started = time.perf_counter()

@@ -1,13 +1,18 @@
-"""Runnable panel for the macro-interaction study.
+"""Runnable panel for the joint feature-set study.
 
 Firm block: the 19 asset-level features (the 21-column v2 set minus the two
 market-wide columns, ``fear_greed_index`` and ``spy_return_1bar``). Macro block: the
-five :data:`macro.MACRO_COLUMNS` plus a constant. The model sees the Kronecker product
-of the two — 19 x (5 + 1) = 114 columns — so the firm features can carry a
-regime-dependent sign and magnitude.
+five :data:`macro.MACRO_COLUMNS` plus a constant. The panel always carries the
+Kronecker product of the two — 19 x (5 + 1) = 114 columns — and :func:`feature_columns`
+selects the block a model reads:
+
+    micro   19 columns    firm features x const (no macro interaction)
+    macro  114 columns    firm features x (const + 5 macro state variables)
+
+so a feature can carry a regime-dependent sign and magnitude in the macro block.
 
 The panel is built in memory from the raw weekly CSVs and the Welch-Goyal workbook;
-:mod:`build_features_macro` writes the same frame to CSV for inspection.
+:mod:`build_features` writes the same frame to CSV for inspection (``features_macro.csv``).
 """
 
 from __future__ import annotations
@@ -36,6 +41,25 @@ FIRM_COLUMNS = ([name for name in FEATURES if name not in MARKET_WIDE]
                 + list(TREND_FEATURES))
 assert len(FIRM_COLUMNS) == 19, f"expected 19 firm features, got {len(FIRM_COLUMNS)}"
 
+FEATURE_SETS = ("micro", "macro")
+
+
+def feature_columns(feature_set: str) -> list[str]:
+    """Panel columns the model reads for one feature block.
+
+    ``micro`` is the 19 firm features themselves, with no macro interaction.
+    ``macro`` is the full 19 x 6 Kronecker block (firm x (const + 5 macro state)),
+    which is the firm block plus one ``__x__`` column per macro variable.
+
+    Raises:
+        ValueError: if ``feature_set`` is not one of :data:`FEATURE_SETS`.
+    """
+    if feature_set == "micro":
+        return list(FIRM_COLUMNS)
+    if feature_set == "macro":
+        return interaction_columns(FIRM_COLUMNS)
+    raise ValueError(f"unknown feature set {feature_set!r}; use one of {list(FEATURE_SETS)}")
+
 
 def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
     """Build the macro-interaction panel from the raw weekly CSVs and macro inputs.
@@ -44,7 +68,8 @@ def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
         ``(panel, benchmark_close, feature_cols)`` where the panel is indexed by
         ``(date, ticker)`` with the 114 interaction columns, ``fwd_ret`` and the
         1/4/12-bar training labels; ``feature_cols`` lists the 114 model inputs in
-        build order. Rows without a realised label or a macro value are dropped.
+        build order (the ``macro`` block; see :func:`feature_columns`). Rows without a
+        realised label or a macro value are dropped.
     """
     prices = load_ohlcv(raw_data_dir("weekly"), TRADABLE_ETFS)
     benchmark = load_ohlcv(raw_data_dir("weekly"), BENCHMARKS)[BENCHMARKS[0]]

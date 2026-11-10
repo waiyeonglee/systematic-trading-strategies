@@ -1,5 +1,19 @@
 {
-  "scheme": "macro-interaction joint model x strategy ranking",
+  "scheme": "joint model x strategy ranking",
+  "features": {
+    "name": "macro",
+    "firm": 19,
+    "const": 1,
+    "macro": 5,
+    "model_columns": 114,
+    "macro_columns": [
+      "fear_greed",
+      "tbl",
+      "tms",
+      "dfy",
+      "dfr"
+    ]
+  },
   "split": {
     "train": [
       "2011-01-01",
@@ -15,12 +29,6 @@
     ]
   },
   "window_train": "8y",
-  "features": {
-    "firm": 19,
-    "macro": 5,
-    "const": 1,
-    "interaction_columns": 114
-  },
   "window": [
     "2019-01-01",
     "2022-12-31"

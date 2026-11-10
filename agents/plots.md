@@ -9,7 +9,7 @@ figures — the single draw of the overall winner (`test`) and the per-refit-arm
 ## Where the figures live
 
 ```
-results/_study/                       # v2 study; results/_study_macro/ mirrors it
+results/_study_{micro,macro}/        # one tree per feature block
   draws/<arm>/<run_tag>/               # arm = me | qe: tables, series/, plots/
   plots/<arm>/{test,val}/              # 10 PNGs per window, no window prefix
     01_cumulative_returns.png          # ... 10_oos_r2_by_year.png
@@ -33,13 +33,12 @@ results/_study/                       # v2 study; results/_study_macro/ mirrors 
 | run | test window | publishes |
 | --- | --- | --- |
 | `run_study.py draw` (best candidate of each refit arm, after selection is locked) | `2023-01-01` … `2025-12-31` | `plots/<arm>/test/` **and** `plots/<arm>/val/`, then `arm_comparison.txt` |
-| `run_study.py test` (overall ranking winner, after selection is locked) | `2023-01-01` … `2025-12-31` | the same two folders for the winner's arm |
+| `run_study.py test` (that block's ranking winner, after selection is locked) | `2023-01-01` … `2025-12-31` | the same two folders for the winner's arm |
 | anything else (ranking rows, cache, ad-hoc windows) | — | nothing; tables + series only |
 
 The mapping lives in `pipeline.report_phases_for` (`REPORT_TEST_WINDOW` /
 `REPORT_PHASES` in `src/pipeline.py`); the arm folder comes from the study CLI
 (`arm_plots_root(refit)`), which passes it as `plots_root`.
-
 ## Why two windows per run
 
 `run_pipeline` measures the book on the **test** window and selects the model on the
@@ -55,7 +54,8 @@ validation result — the number that selected the model — is inspectable next
 headline. The overlay-free book (`apply_vol_target=False`) is still what the
 in-pipeline ranking scores; it is simply not plotted, because the joint ranking picks
 the winner on the overlaid book. The ranking steps (`run_study.py rank` / `cache`) plot
-nothing at all — they emit `results/_study/validation_ranking.csv` (and the cache).
+nothing at all — they emit `results/_study_<block>/validation_ranking.csv` (and the
+cache).
 
 ## The ten figures (per window)
 

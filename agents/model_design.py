@@ -7,22 +7,23 @@ this file. The validation protocol and its measured record live in
 agents/validation_and_ablation.md; results are logged there and under results/.
 
 **Current scheme (2026-11-09): ONE joint ranking.** The walk-forward predictions for
-every (model spec, look-ahead, refit cadence) are computed once and cached; the study
-then replays them through every book configuration and ranks the whole combined space
-of **model x (rebalance, look-ahead, refit) x book** on a single validation window
-(2019-01-01..2022-12-31):
+every (model spec, feature block, look-ahead, refit cadence) are computed once and
+cached; the study then replays them through every book configuration and ranks the
+whole combined space of **model x (rebalance, look-ahead, refit) x book** on a single
+validation window (2019-01-01..2022-12-31), once per feature block:
 
     20 specs x 11 combos x 45 book cells = 9,900 candidates, best net Sharpe wins.
 
 There is no separate model-selection phase and no separate ablation phase. The cache
-lives under results/_study/predictions. Seed `SEED` (§5) is fixed everywhere. The
-2023-2025
+lives under results/_study_<block>/predictions, one root per feature block (`micro` =
+19 firm features, `macro` = the 114 interaction columns). Seed `SEED` (§5) is fixed
+everywhere. The 2023-2025
 window is measured once, afterwards, for the ranking winner only.
 
-**Measured record:** the ranking CSV is `results/_study/validation_ranking.csv` and
-the winner is `results/_study/validation_winner.json`; the numbers are summarised in
-agents/validation_and_ablation.md §5. `HEADLINE_*` stays None until a winner passes
-the test-window gate — the ranking itself promotes nothing.
+**Measured record:** the ranking CSV is `results/_study_<block>/validation_ranking.csv`
+and the winner is `results/_study_<block>/validation_winner.json`; the numbers are
+summarised in agents/validation_and_ablation.md §5. `HEADLINE_*` stays None until a
+winner passes the test-window gate — the ranking itself promotes nothing.
 
 Earlier protocols (2026-11-02 two-window V1/V2 cycles, the 114-/144-grid runs, the
 pre-label-correction test draws) were removed on 2026-11-03 with their result
@@ -177,7 +178,8 @@ class Portfolio:
 WARMUP = ("2004-01-02", "2010-12-31")     # indicator history before training
 TRAIN = ("2011-01-01", "2018-12-31")      # rolling 8y (~416 weeks) minus embargo
 # ONE combined 4-year validation window: the joint model x book ranking runs on it,
-# from the cached walk-forward predictions (results/_study/predictions).
+# once per feature block, from the cached walk-forward predictions
+# (results/_study_<block>/predictions).
 VALIDATION = ("2019-01-01", "2022-12-31")
 TEST = ("2023-01-01", "2025-12-31")       # holdout; effective end 2025-09-26
                                           # under absolute12 (≈ 2025-11-21 under absolute4)
@@ -186,10 +188,10 @@ SEED = DEFAULT_SEED                       # loaded from utils.config.DEFAULT_SEE
                                           # estimator and every cache entry uses it
 
 # Walk-forward prediction cache (committed, npz): one matrix + JSON provenance per
-# (spec, look-ahead, refit) on the validation window, plus the shared volatility
-# warmup. Predictions do not depend on the rebalance cadence or on book knobs, so
-# weekly / 4w / 12w candidates reuse one file.
-PREDICTIONS_CACHE = "results/_study/predictions"
+# (spec, feature block, look-ahead, refit) on the validation window, plus the shared
+# volatility warmup. Predictions do not depend on the rebalance cadence or on book
+# knobs, so weekly / 4w / 12w candidates reuse one file.
+PREDICTIONS_CACHE = "results/_study_<block>/predictions"   # micro | macro
 VOL_WARMUP_BARS = 48                      # covers every vol_window cell (4..48)
 
 BENCHMARK_1 = "SPY"                # buy & hold
@@ -290,7 +292,7 @@ def main() -> None:
     print(f"gates       : net Sharpe >= weaker benchmark AND maxDD <= better "
           f"benchmark (SPY / EW-16 recomputed on 2023-2025, pre-registered)")
     print(f"record      : agents/validation_and_ablation.md §5 (measured ranking) + "
-          f"agents/current_state.md + results/_study/ (ranking CSV, winner JSON)")
+          f"agents/current_state.md + results/_study_<block>/ (ranking CSV, winner JSON)")
 
 
 if __name__ == "__main__":

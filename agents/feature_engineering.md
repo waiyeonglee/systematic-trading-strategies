@@ -93,7 +93,9 @@ Unrealized target values remain NaN in `make_labels`; consumers drop rows as nee
 2. `scripts/build_features.py` loads the raw bars + fear-greed + SPY, builds features,
    calls `make_labels` from `src/labels.py`, selects the requested target, and joins
    it as `label_forward_return_{H}bar`. It writes `features.csv` (unrealized target
-   values kept as NaN) and the correlation report.
+   values kept as NaN) and the correlation report, then (unless `--no-macro`) writes
+   the 114-column macro-interaction panel `features_macro.csv` in the same run —
+   crossing the 19 firm features with `(const + 5 macro)`.
 
 `data/features/weekly/features.csv` contains one selected label column in addition to
 the 21 features. The 12-week label requires a close 13 bars after the feature date,
@@ -122,9 +124,11 @@ trailing bars with NaN labels.
 
 ```bash
 python scripts/fetch_data.py          # optional: re-fetch raw weekly CSVs (end exclusive 2026-01-02)
-python scripts/build_features.py      # rebuild features.csv + correlation report (weekly, fear-greed on, H=12)
+python scripts/build_features.py      # rebuild features.csv + features_macro.csv + correlation report
+                                      # (weekly, fear-greed on, H=12)
 python scripts/build_features.py --no-fear-greed   # 20 features
 python scripts/build_features.py --horizon 4       # 4-bar label column
+python scripts/build_features.py --no-macro        # skip the 114-column macro panel
 ```
 
 Outputs land in `data/features/<frequency>/`. Settings that change the feature

@@ -1,5 +1,19 @@
 {
-  "phase": "macro joint-ranking",
+  "phase": "joint-ranking",
+  "features": {
+    "name": "macro",
+    "firm": 19,
+    "const": 1,
+    "macro": 5,
+    "model_columns": 114,
+    "macro_columns": [
+      "fear_greed",
+      "tbl",
+      "tms",
+      "dfy",
+      "dfr"
+    ]
+  },
   "split": {
     "train": [
       "2011-01-01",
@@ -20,17 +34,6 @@
   ],
   "seed": 5205,
   "window_train": "8y",
-  "features": {
-    "firm_features": 19,
-    "macro": [
-      "fear_greed",
-      "tbl",
-      "tms",
-      "dfy",
-      "dfr"
-    ],
-    "interaction_columns": 114
-  },
   "candidates": {
     "specs": 20,
     "combos": 11,
@@ -50,26 +53,25 @@
     "refit": "QE"
   },
   "book": {
-    "name": "w48_vtoff_rf3_cap3.0",
+    "name": "w48_vt20_rf3_cap1.0",
     "vol_window": 48,
-    "vol_target": null,
+    "vol_target": 0.2,
     "vol_rf": 0.03,
-    "vol_cap": 3.0,
-    "lev_fee": 0.068
+    "vol_cap": 1.0,
+    "lev_fee": 0.0
   },
   "metrics": {
-    "net_sharpe": 1.176311281945603,
-    "gross_sharpe": 1.1791740547151697,
-    "max_drawdown": -0.14040639925290554,
-    "total_return": 0.8707818097534799,
-    "ann_return": 0.16863906062213974,
-    "ann_vol": 0.14105694876044747,
+    "net_sharpe": 1.176311260749404,
+    "gross_sharpe": 1.1791740335578955,
+    "max_drawdown": -0.14040640300055673,
+    "total_return": 0.8707817819728985,
+    "ann_return": 0.168639056304408,
+    "ann_vol": 0.1410569480757587,
     "hit_rate": 0.5980861244019139,
-    "avg_turnover": 0.02509085089826344
+    "avg_turnover": 0.025090850634346868
   },
   "cache": "results/_study_macro/predictions/2019-01-01_2022-12-31/weekly_la12_refitQE/enet_a0.01_r1.npz",
   "window_train_bars": 416,
-  "features_used": 114,
   "ranking": "results/_study_macro/validation_ranking.csv",
-  "note": "elastic-net-only macro-interaction study; promotion still requires the pre-registered ADR and the single test draw"
+  "note": "promotion still requires the pre-registered ADR and the single test draw"
 }

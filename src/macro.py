@@ -1,6 +1,6 @@
 """Macroeconomic state variables and their interaction (Kronecker) features.
 
-Five monthly state variables feed the macro study:
+Five monthly state variables feed the macro feature block:
 
     fear_greed  CNN Fear & Greed index (0-100), month-end value
     tbl         3-month T-bill rate (decimal)

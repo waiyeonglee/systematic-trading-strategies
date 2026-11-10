@@ -54,13 +54,14 @@ were fixed **before** looking at market regimes.
 
 ## 2. Prediction cache
 
-`src/prediction_cache.py` stores one prediction set per (spec, look-ahead, refit) under
-`results/_study/predictions/<window>/<freq>_<la>_refit<slug>/`:
+`src/prediction_cache.py` stores one prediction set per (spec, feature block,
+look-ahead, refit) under
+`results/_study_<block>/predictions/<window>/<freq>_<la>_refit<slug>/`:
 
 | file | content |
 | --- | --- |
-| `<spec>.npz` | the prediction matrix as `float32` `(dates, tickers)` + the two axes (≈ 21 KB for six years of weekly bars) |
-| `<spec>.json` | provenance: spec, target, refit, training window, embargo, **seed**, evaluation window, panel signature, format |
+| `<spec>.npz` | the prediction matrix as `float32` (dates, tickers) + the two axes (≈ 21 KB for six years of weekly bars) |
+| `<spec>.json` | provenance: spec, feature block, target, refit, training window, embargo, **seed**, evaluation window, panel signature, format |
 | `<window>/_degenerate/<group>__<spec>.json` | marker for a **degenerate** prediction set (see below) |
 
 - Predictions do not depend on the rebalance cadence or on any book knob, so the
@@ -120,25 +121,27 @@ and was removed on 2026-11-06 — see the history note in §6.
 
 ## 4. Output format
 
-`results/_study/validation_ranking.csv` — one row per candidate, sorted by
+`results/_study_<block>/validation_ranking.csv` — one row per candidate, sorted by
 `net_sharpe` descending, with `rank`, the model parameters, `target` /
 `look_ahead` / `rebalance` / `refit`, the book knobs (`book`, `vol_window`,
 `vol_target`, `vol_rf`, `vol_cap`, `lev_fee`), the metrics (`net_sharpe`,
 `gross_sharpe`, `max_drawdown`, `total_return`, `ann_return`, `ann_vol`, `hit_rate`,
-`avg_turnover`) and `degenerate` / `degenerate_reason`. `book` is the cell slug
-(`w12_vt20_rf3_cap1.0`); its human-readable note is kept once per name in
-`run_parameters.json` rather than repeated on 9,900 rows.
+`avg_turnover`), `degenerate` / `degenerate_reason` and the `features` block
+(`micro` | `macro`). `book` is the cell slug (`w12_vt20_rf3_cap1.0`); its
+human-readable note is kept once per name in `run_parameters.json` rather than repeated
+on all 9,900 rows.
 
-`results/_study/validation_winner.json` — the top row plus its provenance (spec
-record, combo, book, metrics, cache path, seed, window, candidate counts).
+`results/_study_<block>/validation_winner.json` — the top row plus its provenance (spec
+record, feature block, combo, book, metrics, cache path, seed, window, candidate
+counts).
 
-`results/_study/run_parameters.json` — the space definition actually searched.
+`results/_study_<block>/run_parameters.json` — the space definition actually searched.
 
 When the final holdout is run, test draws are kept inside the study folder, one
 directory per refit arm:
 
 ```
-results/_study/
+results/_study_{micro,macro}/
   draws/<arm>/<run_tag>/           # arm = me | qe: the usual tables + series/
   plots/<arm>/{test,val}/          # 10 PNGs per window for that arm
   arm_comparison.txt               # one row per arm + the arm with the highest
@@ -180,17 +183,19 @@ state is:
 - **Test set remains unseen:** the 2023-2025 window has not been run for the current
   reset experiment and should be treated as the final holdout.
 - **One final measurement:** after the validation-selected configuration is locked,
-  run `python scripts/run_study.py test` once for the base study, or the equivalent
-  macro-study test command for the macro specification.
+  run `python scripts/run_study.py test` once per feature block — add
+  `--features micro` or `--features macro`; the bare command runs both.
+
 - **No stale outputs:** any files or figures from earlier experiments are stale unless
   regenerated after the reset.
 
 ## 6. Status
 
 - **Scheme in force:** one joint ranking over model x strategy parameters on the
-  combined 2019-2022 validation window; predictions cached under
-  `results/_study/predictions`; `utils.config.DEFAULT_SEED`; one selection criterion
-  (§3.1) over the scored space.
+  combined 2019-2022 validation window, run once per feature block (`micro` = 19 firm
+  features, `macro` = the 114 interaction columns); predictions cached under
+  `results/_study_<block>/predictions`; `utils.config.DEFAULT_SEED`; one selection
+  criterion (§3.1) over the scored space.
 - **Promotion state:** open for the fresh experiment cycle; no 2023-2025 holdout
   result has been recorded after the reset.
 - **Holdout discipline:** do not run or inspect 2023-2025 test outputs until the final

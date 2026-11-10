@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
-"""Build the feature panel for trend-following-strategy-v2.
+"""Build both the micro and the macro feature panels in one run.
 
-Reads ``data/raw/weekly/*.csv`` (16 tradables) plus SPY and
-``data/additional/fear-greed.csv``, computes the 21 features + the forward-return
-label, and writes:
+Reads ``data/raw/weekly/*.csv`` (16 tradables) plus SPY,
+``data/additional/fear-greed.csv`` and the Welch-Goyal workbook, computes the firm
+features + the forward-return labels, and writes:
 
     data/features/<frequency>/features.csv                  (label rows kept, NaN allowed)
     data/features/<frequency>/feature_label_correlation.csv
     data/features/<frequency>/feature_label_correlation.png
+    data/features/weekly/features_macro.csv                 (114 interaction columns)
+
+``features_macro.csv`` is the macro block: 19 firm features x (5 macro + const) = 114
+interaction columns (named ``<firm>__x__<macro>``), the five raw macro levels
+(``macro_*``), ``fwd_ret`` and the 1/4/12-bar labels. The ``micro`` block reads the 19
+firm features from the same frame. It is ~30 MB and git-ignored: the study rebuilds
+the panel in memory (:mod:`macro_panel`), so the CSV is an inspection artifact. Pass
+``--no-macro`` to skip it.
 
 Defaults encode the v2 conventions (weekly bars, Fear & Greed on, H = 12 weeks).
 The dataset is frozen at the fixed end date 2026-01-01 (see src/utils/config.py).
@@ -16,6 +24,7 @@ Usage:
     python scripts/build_features.py
     python scripts/build_features.py --no-fear-greed
     python scripts/build_features.py --horizon 4
+    python scripts/build_features.py --no-macro            # features.csv only
 """
 
 from __future__ import annotations
@@ -26,6 +35,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))  # src modules import each other by bare name
+sys.path.insert(0, str(PROJECT_ROOT / "scripts"))  # macro_panel imports its siblings bare
 
 import pandas as pd
 
@@ -65,14 +75,39 @@ def load_fear_greed_index(path: Path = FEAR_GREED_PATH) -> pd.Series:
     return pd.Series(values.to_numpy(), index=pd.DatetimeIndex(data["Date"]), name="fear_greed_index")
 
 
+def write_macro_panel(out: Path) -> None:
+    """Write the 114-column macro-interaction panel (inspection artifact)."""
+    from macro_panel import build_panel, macro_levels
+
+    panel, _, feature_cols = build_panel()
+    frame = pd.concat([panel, macro_levels(panel)], axis=1).reset_index()
+    frame = frame[["date", "ticker", *feature_cols,
+                   *[column for column in frame.columns if column.startswith("macro_")],
+                   "fwd_ret", "fwd_ret_1bar", "fwd_ret_4bar", "fwd_ret_12bar"]]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(out, index=False)
+
+    dates = panel.index.get_level_values("date")
+    print(f"macro: {len(panel):,} rows | dates {dates.min():%Y-%m-%d}..{dates.max():%Y-%m-%d} "
+          f"({dates.nunique()}) | tickers {panel.index.get_level_values('ticker').nunique()} "
+          f"| {len(feature_cols)} interaction columns + 5 macro levels + fwd_ret + 3 labels; "
+          f"saved to {out}")
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--frequency", default="weekly", choices=("daily", "weekly"),
                         help="bar frequency of the raw CSVs (default: weekly)")
     parser.add_argument("--no-fear-greed", action="store_true",
                         help="omit the Fear & Greed index feature (20 features)")
     parser.add_argument("--horizon", type=int, default=12, choices=(1, 4, 12),
                         help="label holding horizon in bars (default: 12)")
+    parser.add_argument("--no-macro", action="store_true",
+                        help="skip the 114-column features_macro.csv panel")
+    parser.add_argument("--macro-out", type=Path, default=FEATURES_DIR / "weekly" / "features_macro.csv",
+                        help="destination of the macro panel "
+                             "(default: data/features/weekly/features_macro.csv)")
     args = parser.parse_args()
 
     frequency = args.frequency
@@ -109,6 +144,11 @@ def main() -> None:
     )
     print(f"{frequency.title()}: {features.shape[0]:,} rows x {len(columns)} features; "
           f"labels through {sample_end.date()}; saved to {output_dir}")
+
+    if args.no_macro:
+        print("macro: skipped (--no-macro)")
+    else:
+        write_macro_panel(args.macro_out)
 
 
 if __name__ == "__main__":

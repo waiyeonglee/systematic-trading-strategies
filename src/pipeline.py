@@ -59,6 +59,10 @@ class PipelineConfig:
         grid: Candidate :class:`ModelSpec` points; empty defaults to the design grid.
         seed: Random state shared by every refit and selection step.
         target_col: Label the models are trained on.
+        features: Feature block of the panel columns, e.g. ``"micro"`` (firm features)
+            or ``"macro"`` (firm features x macro state). It only labels the run: the
+            column list itself is passed next to the config, and the tag keeps the
+            prediction-cache provenance of the two blocks apart.
         forecast_vol: Settings of the ``forecast_vol_scaled`` book.
         trend: Settings of the ``trend_long_flat`` book (documented reference).
     """
@@ -73,6 +77,7 @@ class PipelineConfig:
     grid: tuple[ModelSpec, ...] = ()
     seed: int = DEFAULT_SEED
     target_col: str = TARGET_COL
+    features: str = "macro"
     forecast_vol: ForecastVolParams = ForecastVolParams()
     trend: TrendParams = TrendParams()
 
@@ -98,6 +103,7 @@ def run_tag(config: PipelineConfig, test_start: str, test_end: str,
     else:
         parts.append(f"roll{duration_slug(config.window_train or 'all')}")
         parts.append(f"val{duration_slug(window_val)}")
+        parts.append(config.features)
         parts.append(REFIT_SLUGS.get(config.refit_every, config.refit_every.lower()))
         if config.mode == "single" and len(config.grid) == 1:
             parts.append(config.grid[0].name)
@@ -243,8 +249,8 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
 
     Args:
         panel: Feature panel indexed by ``(date, ticker)``.
-        feature_cols: Model inputs (21 features in the v2 panel; 114 in the macro
-            interaction panel).
+        feature_cols: Model inputs: the 19 firm features for the ``micro`` block, or
+            the 114 interaction columns for the ``macro`` block.
         benchmark_close: Benchmark (SPY) adjusted close covering the panel, by date.
         config: Pipeline settings.
         test_start / test_end / window_val: Split bounds; validation is the
@@ -253,10 +259,9 @@ def run_pipeline(panel: pd.DataFrame, feature_cols: list[str], benchmark_close: 
         publish_figures: Copy the run's figures into the canonical
             ``<plots_root>/<phase>/`` folders. Set ``False`` for a study that only
             wants the figures in its own run folder.
-        plots_root: Parent of the phase folders the figures are published to;
-            ``None`` keeps the v2 target ``results/plots``. The macro study passes
-            ``results/plots_macro`` so its figures never mix with the pre-registered
-            v2 set.
+        plots_root: Parent of the phase folders the figures are published to; the
+            study passes ``results/_study_<block>/plots`` so the two feature blocks
+            never mix their figures.
 
     Returns:
         Dict with ``windows``, ``train/val/test``, ``ranking``, ``selected``, ``preds``,
@@ -356,7 +361,7 @@ def publish_report_figures(out_dir: Path, phase: str, window: str,
     already identifies the phase. ``window`` is the figure-name prefix written by
     :func:`plots.plot_run` (``"test"`` / ``"validation"``), ``phase`` the folder
     (``"test"`` / ``"val"``), and ``plots_root`` the parent of those phase folders
-    (``results/plots`` when ``None``; the macro study uses ``results/plots_macro``).
+    (the study passes ``results/_study_<block>/plots``).
 
     Args:
         out_dir: Run folder holding the transient ``plots/`` directory.
@@ -394,8 +399,8 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
         publish_figures: Copy the figures to ``<plots_root>/<phase>/`` and drop the
             per-run ``plots/`` folder. ``False`` keeps the figures in
             ``<out_dir>/plots/`` and publishes nothing.
-        plots_root: Destination parent of the phase folders; ``None`` uses
-            ``results/plots`` (the macro study passes ``results/plots_macro``).
+        plots_root: Destination parent of the phase folders (the study passes
+            ``results/_study_<block>/plots``).
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

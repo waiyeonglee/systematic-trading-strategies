@@ -1,11 +1,14 @@
-# Macro-interaction study (elastic net only)
+# Macro-interaction feature block (elastic net only)
 
-> **Purpose.** A second, separate study that asks whether the model's failure to hold
-> the right *level* is a regime-awareness problem. The firm features are interacted
-> with five macro state variables, so a feature can change sign and magnitude with the
-> cycle. It is a separate study on purpose: different split, different feature set,
-> its own prediction cache and its own output folder. Nothing here touches the v2
-> study's ranking, cache or published figures.
+> **Purpose.** One of the two feature blocks of the joint study, and the answer to
+> "is the model's failure to hold the right *level* a regime-awareness problem?" The
+> firm features are interacted with five macro state variables, so a feature can
+> change sign and magnitude with the cycle. It is a separate block on purpose: its own
+> columns, its own prediction cache and its own output folder. Nothing here touches the
+> micro block's ranking, cache or published figures.
+>
+> Both blocks are run by the same command, `scripts/run_study.py`, selected with
+> `--features micro|macro` (default: both in turn).
 
 ## 1. Inputs
 
@@ -80,22 +83,23 @@ Verified on the built panel (`macro_state(..., lag_months=1)`):
 The refit cadence is restricted with `--refits` (default: all of `ME,QE`). Weekly
 refits are removed from the active study space; monthly and quarterly refits remain.
 
-`python scripts/run_study_macro.py cache [--refits ...]` fits the **missing** prediction
-sets of that space and nothing else (no book simulation, no ranking). Combos that share
-a `(look-ahead, refit)` group collapse to one task, so the 11 combos are 6 forecast
-groups: `weekly_la{1,4,12}_refit{ME,QE}`. Run it after changing `--refits`, then
+`python scripts/run_study.py cache --features macro [--refits ...]` fits the **missing**
+prediction sets of that space and nothing else (no book simulation, no ranking). Combos
+that share a `(look-ahead, refit)` group collapse to one task, so the 11 combos are 6
+forecast groups: `weekly_la{1,4,12}_refit{ME,QE}`. Run it after changing `--refits`, then
 re-rank; `--models` restricts the specs and `--refresh-cache` refits everything.
 
 After the validation-selected configuration is locked,
-`python scripts/run_study_macro.py draw [--refits ...]` can draw the best validation
-candidate of every refit arm on 2023-2025 (one folder per arm, its own figures) and
-write `draws/arm_comparison.txt`; `test` draws only the overall winner.
+`python scripts/run_study.py draw --features macro [--refits ...]` can draw the best
+validation candidate of every refit arm on 2023-2025 (one folder per arm, its own
+figures) and write `draws/arm_comparison.txt`; `test --features macro` draws only the
+overall winner.
 
 No RFF family: the point of this study is fast iteration over a linear model with
 explicit interactions. `l1_ratio=0` is ridge and `l1_ratio=1` is lasso, so the family
 ends are covered.
 
-Selection is the same single criterion as `run_study.py`: the highest `net_sharpe` on
+Selection is the same single criterion as the micro block: the highest `net_sharpe` on
 the validation window wins. (A regime-stratified second criterion ran on 2026-11-04
 and was removed on 2026-11-06; see `agents/current_state.md` Step 19.)
 
@@ -112,15 +116,16 @@ results/_study_macro/
   arm_comparison.txt                   # per-arm test draws + the winning arm
 ```
 
-- The cache key records seed, target, refit, rolling window, embargo, evaluation
-  window and panel signature — but **not the feature set**, so the study must never
-  share `results/_study/predictions`; `run_study_macro.py` always writes to
-  `results/_study_macro/predictions`.
-- After selection is locked, `run_study_macro.py test` draws the overall winner and publishes to
-  `plots/<its arm>/{test,val}/` via
-  `run_pipeline(..., plots_root=arm_plots_root(refit))`; `draw` does the same for every
-  arm. The whole tree lives inside this study's folder, so the v2 study's draws and
-  figures are never touched.
+- The cache provenance records seed, target, refit, rolling window, embargo,
+  evaluation window, feature block and panel signature. Each block also gets its own
+  cache root — `results/_study_micro/predictions` and
+  `results/_study_macro/predictions` — so the two blocks can never read or overwrite
+  each other's predictions.
+- After selection is locked, `run_study.py test --features macro` draws the overall
+  winner and publishes to `plots/<its arm>/{test,val}/` via
+  `run_pipeline(..., plots_root=arm_plots_root(refit))`; `draw --features macro` does
+  the same for every arm. The whole tree lives inside this block's folder, so the
+  micro block's draws and figures are never touched.
 
 ## 6. Discipline notes before drawing the test window
 

@@ -1,9 +1,11 @@
 """Walk-forward prediction cache shared by the validation study.
 
-Predictions are computed once per (model spec, look-ahead, refit cadence) and stored
-under ``results/_study/predictions``; :func:`cached_predictions` recomputes only when
-the stored provenance does not match the request (seed, target, refit cadence,
-rolling training window, embargo, evaluation window, panel signature).
+Predictions are computed once per (model spec, feature block, look-ahead, refit cadence)
+and stored under ``results/_study_<block>/predictions`` — one cache root per feature
+block, so the micro and macro predictions of the same spec never share a folder.
+:func:`cached_predictions` recomputes only when the stored provenance does not match the
+request (seed, target, refit cadence, rolling training window, embargo, evaluation
+window, feature block, panel signature).
 
 Predictions do not depend on the rebalance cadence or on any book knob, so the cache
 key omits them: weekly / 4w / 12w candidates of the same (look-ahead, refit) reuse one
@@ -31,7 +33,8 @@ from models import ModelSpec, walk_forward_predict
 from utils.paths import PREDICTIONS_DIR
 
 PROVENANCE_KEYS = ("freq", "spec", "target_col", "refit_every", "window_train_bars",
-                   "embargo", "seed", "eval_start", "eval_end", "bars", "panel")
+                   "embargo", "seed", "eval_start", "eval_end", "bars", "panel",
+                   "features")
 
 PRED_DTYPE = np.float32             # 4 bytes per prediction: |delta Sharpe| < 1e-7
 DEGENERATE_STD = 1e-12              # mean cross-sectional std below this = degenerate
@@ -105,6 +108,7 @@ def provenance(config, spec: ModelSpec, start: str, end: str, panel: pd.DataFram
         "alpha": spec.alpha,
         "l1_ratio": spec.l1_ratio,
         "target_col": config.target_col,
+        "features": config.features,
         "rebalance": config.forecast_vol.rebalance,
         "refit_every": config.refit_every,
         "window_train_bars": config.window_train_bars,
@@ -250,7 +254,9 @@ def cached_predictions(panel: pd.DataFrame, feature_cols: list[str], config,
         config: Pipeline settings (target, refit cadence, training window, embargo, seed).
         spec: The model spec to walk forward.
         start / end: Evaluation window bounds.
-        cache_root: Cache root; defaults to ``results/_study/predictions``.
+        cache_root: Cache root; defaults to ``results/_study_macro/predictions``.
+            The study passes ``results/_study_<block>/predictions``, one root per
+            feature block.
         refresh: Recompute even when a valid cache entry exists.
         verbose: Print a ``[cache] hit|miss`` line per prediction set.
 

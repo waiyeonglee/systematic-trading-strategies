@@ -125,8 +125,9 @@ def default_config(horizon: int, vol_target: bool | float | None,
                    vol_cap: float = 1.0, vol_rf: float = 0.03,
                    lev_fee: float = 0.0,
                    window_train: str | None = "8y",
-                   grid_entries: list[dict] | None = None) -> PipelineConfig:
-    """Pipeline settings with the fixed v2 window.
+                   grid_entries: list[dict] | None = None,
+                   features: str = "macro") -> PipelineConfig:
+    """Pipeline settings with the fixed study window.
 
     ``model`` pins a single spec (``mode: single``, a single ranked cell); ``None``
     keeps the 20-spec grid. ``refit_every`` is a ranking-grid dimension (monthly /
@@ -135,10 +136,11 @@ def default_config(horizon: int, vol_target: bool | float | None,
     10%), or ``False`` / ``None`` (overlay off). ``vol_min_periods`` is clamped to
     the window so short vol windows (4w/8w/12w) stay valid.
 
-    ``window_train`` is the rolling training window (``"8y"`` = the 416-bar v2
-    default shared with the macro study). ``grid_entries`` replaces
-    :data:`GRID_ENTRIES` when the pinned ``model`` comes from a different grid (e.g.
-    the elastic-net-only macro grid, which adds ``l1_ratio`` 0 and 1).
+    ``window_train`` is the rolling training window (``"8y"`` = 416 weekly bars).
+    ``grid_entries`` replaces :data:`GRID_ENTRIES` when the pinned ``model`` comes
+    from a different grid. ``features`` labels the feature block the panel columns
+    belong to (``"micro"`` = firm features, ``"macro"`` = macro interactions); it is
+    recorded in the prediction-cache provenance so the two blocks never share entries.
 
     Raises:
         ValueError: if ``horizon`` is not a valid target, if the rebalance
@@ -177,6 +179,7 @@ def default_config(horizon: int, vol_target: bool | float | None,
         refit_every=refit_every, window_train=window_train,
         embargo=MODEL_EMBARGO[f"absolute{horizon}"],
         grid=grid, seed=DEFAULT_SEED, target_col=target_col, forecast_vol=forecast_vol,
+        features=features,
     )
 
 

@@ -5,6 +5,7 @@
   "alpha": 0.001,
   "l1_ratio": 0.0,
   "target_col": "fwd_ret_12bar",
+  "features": "macro",
   "rebalance": "weekly",
   "refit_every": "QE",
   "window_train_bars": 416,
