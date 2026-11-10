@@ -1,0 +1,47 @@
+{
+  "phase": "joint-ranking",
+  "window": [
+    "2019-01-01",
+    "2022-12-31"
+  ],
+  "seed": 5205,
+  "candidates": {
+    "specs": 20,
+    "combos": 11,
+    "books": 45,
+    "scored": 9900
+  },
+  "model": {
+    "name": "enet_a0.001_r0.5",
+    "family": "enet",
+    "alpha": 0.001,
+    "l1_ratio": 0.5
+  },
+  "combo": {
+    "target": "absolute1",
+    "look_ahead": 1,
+    "rebalance": "weekly",
+    "refit": "ME"
+  },
+  "book": {
+    "name": "w04_vt20_rf3_cap1.0",
+    "vol_window": 4,
+    "vol_target": 0.2,
+    "vol_rf": 0.03,
+    "vol_cap": 1.0,
+    "lev_fee": 0.0
+  },
+  "metrics": {
+    "net_sharpe": 1.2028190542243549,
+    "gross_sharpe": 1.2113031275607216,
+    "max_drawdown": -0.18990859691851192,
+    "total_return": 1.4607301830771613,
+    "ann_return": 0.25111784670232873,
+    "ann_vol": 0.20398610317268656,
+    "hit_rate": 0.6363636363636364,
+    "avg_turnover": 0.10601602661126994
+  },
+  "cache": "results/_study/predictions/2019-01-01_2022-12-31/weekly_la1_refitME/enet_a0.001_r0.5.npz",
+  "ranking": "results/_study/validation_ranking.csv",
+  "note": "best net Sharpe over the joint model x strategy space; promotion still requires the pre-registered ADR and the single test draw"
+}
