@@ -257,7 +257,8 @@ def main() -> None:
 
     results = run_pipeline(panel, feature_cols, benchmark_close, config,
                            test_start=args.test_start, test_end=args.test_end,
-                           window_val=args.window_val, out_dir=out_dir)
+                           window_val=args.window_val, out_dir=out_dir,
+                           publish_figures=False)
 
     ranking = results["ranking"]
     pd.set_option("display.float_format", "{:.4f}".format)

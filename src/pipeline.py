@@ -354,9 +354,9 @@ def cumulative_by_window(results: dict) -> dict:
 
 
 # The final pre-registered test draw publishes canonical report figures for **both**
-# windows it measures: results/plots/test/ (the out-of-sample draw) and
-# results/plots/val/ (the validation window the winner was selected on). Study runs
-# write tables and summaries only — they never plot.
+# windows it measures. Callers must pass an explicit plots_root, e.g.
+# results/_study_<block>/plots/<arm>, so stale top-level plot folders are not
+# recreated by ad-hoc runs.
 REPORT_TEST_WINDOW = ("2023-01-01", "2025-12-31")
 REPORT_PHASES = (("test", "test"), ("val", "validation"))
 
@@ -368,7 +368,7 @@ def report_phases_for(results: dict) -> tuple[tuple[str, str], ...]:
 
 
 def publish_report_figures(out_dir: Path, phase: str, window: str,
-                           plots_root: Path | None = None) -> Path:
+                           plots_root: Path) -> Path:
     """Copy the window's 10 figures to ``<plots_root>/<phase>/`` (prefix stripped).
 
     The canonical report figures live under a ``plots`` root; the per-run ``plots/``
@@ -376,23 +376,21 @@ def publish_report_figures(out_dir: Path, phase: str, window: str,
     Files are named ``01_<stem>.png`` … ``10_<stem>.png`` because the folder name
     already identifies the phase. ``window`` is the figure-name prefix written by
     :func:`plots.plot_run` (``"test"`` / ``"validation"``), ``phase`` the folder
-    (``"test"`` / ``"val"``), and ``plots_root`` the parent of those phase folders
-    (the study passes ``results/_study_<block>/plots``).
+    (``"test"`` / ``"val"``), and ``plots_root`` the parent of those phase folders.
 
     Args:
         out_dir: Run folder holding the transient ``plots/`` directory.
         phase: Destination folder name, ``"test"`` or ``"val"``.
         window: Figure-name prefix produced by :func:`plots.plot_run`.
-        plots_root: Parent folder of the phase folders; defaults to
-            ``results/plots``.
+        plots_root: Parent folder of the phase folders.
 
     Returns:
         The destination folder.
     """
-    from utils.paths import RESULTS_DIR
-
     src = Path(out_dir) / "plots"
-    dst = Path(plots_root if plots_root is not None else RESULTS_DIR / "plots") / phase
+    if plots_root is None:
+        raise ValueError("plots_root is required when publish_figures=True")
+    dst = Path(plots_root) / phase
     dst.mkdir(parents=True, exist_ok=True)
     figures = sorted(src.glob(f"{window}_*.png"))
     if not figures:
@@ -413,13 +411,14 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
         results: Output of :func:`run_pipeline`.
         feature_cols: Model input columns (excludes labels and book helpers).
         publish_figures: Copy the figures to ``<plots_root>/<phase>/`` and drop the
-            per-run ``plots/`` folder. ``False`` keeps the figures in
-            ``<out_dir>/plots/`` and publishes nothing.
-        plots_root: Destination parent of the phase folders (the study passes
-            ``results/_study_<block>/plots``).
+            per-run ``plots/`` folder. Requires ``plots_root``. ``False`` keeps the
+            figures in ``<out_dir>/plots/`` and publishes nothing.
+        plots_root: Destination parent of the phase folders.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if publish_figures and report_phases_for(results) and plots_root is None:
+        raise ValueError("plots_root is required when publish_figures=True")
     config: PipelineConfig = results["config"]
     book = results["portfolio"]
     preds = results["preds"]
@@ -460,9 +459,8 @@ def evaluate_all(out_dir: Path, results: dict, feature_cols: list[str],
 
     save_parameters(run_parameters(results, feature_cols), out_dir)
 
-    # time series + report figures: series stay in the run folder, the canonical
-    # report figures go to results/plots/<phase>/ for both measured windows
-    # (test and validation); the transient per-run plots/ folder is removed after.
+    # Time series stay in the run folder; report figures are copied only when the
+    # caller provides an explicit plots_root.
     save_series(out_dir, "test", book, benchmarks)
     save_series(out_dir, "val", results["val_portfolio"], results["val_benchmarks"])
     plot_run(results, out_dir)
