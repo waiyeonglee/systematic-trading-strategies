@@ -19,31 +19,20 @@ source .venv/bin/activate
 # 2. features: features.csv (micro) + features_macro.csv (114-column macro panel)
 python scripts/build_features.py
 
-# 3. study, per feature block: cache -> rank (2019-2022 val) -> draw (2023-2025 test) -> plots
-#    -> results/_study_{micro,macro}/
+# 3. study, per feature block: cache predictions -> rank on 2019-2022 val -> draw 2023-2025 test -> plots
+#    also writes the selected micro/macro validation comparison
+#    -> results/_study_{micro,macro}/ + results/validation_comparison/
+python scripts/run_pipeline_study.py both
 python scripts/run_pipeline_study.py both
 
 # 4. ME vs QE arm comparison (+ AR(1) baseline) -> results/_study_<block>/comparison/
 python scripts/compare_arms.py both
 
-# 5. baselines
+# 5. standalone baselines on validation/test windows`
 python scripts/run_trend_baseline.py               # SMA40 / MOM52 -> results/trend_baseline/
 python scripts/run_forecast_baseline.py --horizon 4  # AR(1) OOS R² -> results/forecast_baseline/
 
-# 6. report figure: selected micro/macro + EW-16 + SPY + AR(1)
-#    -> results/validation_comparison/
-python scripts/plot_validation_comparison.py
-
-# 7. final holdout: the validation-selected model (validation_winner.json) drawn once
-#    on the 2023-2025 test set, per feature block
-#    -> results/_study_<block>/draws/<arm>/ + plots/<arm>/{test,val}/
-python scripts/run_study.py test                    # both blocks
-# python scripts/run_study.py test --features macro # one block only
 ```
-
-Steps 3–5 and 7 touch the 2023-2025 test window, so per the holdout discipline below run
-them only once the validation-selected configuration is locked. Use
-`python scripts/run_study.py rank` instead of step 3 to stop at the validation ranking.
 
 ## Dataset (fixed window)
 
@@ -93,7 +82,8 @@ scripts/build_features.py    # builds data/features/weekly/ from the raw CSVs:
 scripts/run_study.py         # joint feature-block x model x strategy ranking on the combined
                              # window + test draw; --features micro|macro (default: both),
                              # micro -> results/_study_micro, macro -> results/_study_macro
-scripts/run_pipeline_study.py  # END TO END for one feature block: cache -> rank -> draw -> plots
+scripts/run_pipeline_study.py  # END TO END: cache -> rank -> draw -> plots
+                             #   running both also writes results/validation_comparison/
                              #   python scripts/run_pipeline_study.py micro|macro|both
 scripts/compare_arms.py      # ME vs QE side-by-side figures + metric txt (validation & test)
                              #   python scripts/compare_arms.py micro|macro|both
@@ -170,7 +160,8 @@ python scripts/run_study.py rank --jobs 4       # worker processes (0 = min(8, c
 # ONE command for the whole chain of a block: cache -> rank -> draw -> figures.
 # The draw stage measures the best candidate of BOTH refit arms, so each block ends
 # up with plots/me/ and plots/qe/. This is the usual entry point; the run_study.py
-# stages above are for partial / debugging runs.
+# stages above are for partial / debugging runs. When run for both blocks, it also
+# writes results/validation_comparison/cumulative_val_micro_macro_ar1.png.
 python scripts/run_pipeline_study.py both       # micro then macro, end to end
 python scripts/run_pipeline_study.py micro      # one block only
 python scripts/run_pipeline_study.py macro --jobs 4
@@ -223,8 +214,8 @@ python scripts/run_study.py draw --features macro   # final holdout only, after 
                                                 # -> results/_study_macro/draws/<arm>/
 python scripts/run_study.py test --features macro   # final holdout only, after selection lock:
                                                 # single draw of the overall winner
-python scripts/plot_validation_comparison.py    # report comparison figure:
-                                                # selected micro/macro + EW-16 + SPY + AR(1)
+python scripts/plot_validation_comparison.py    # optional: regenerate only the selected
+                                                # micro/macro validation comparison figure
 ```
 
 Study outputs: the walk-forward predictions are cached under
@@ -294,14 +285,20 @@ plots_root=Path("results/_study_macro/plots/me")
 ```
 
 and publishes the 10 holdout figures to `results/_study_macro/plots/me/test/` and the
-10 validation figures to `results/_study_macro/plots/me/val/`. The combined report
-comparison is separate:
+10 validation figures to `results/_study_macro/plots/me/val/`. The end-to-end `both`
+pipeline also writes the combined report comparison:
+
+```bash
+python scripts/run_pipeline_study.py both
+```
+
+To regenerate only that figure after both validation winners exist, run:
 
 ```bash
 python scripts/plot_validation_comparison.py
 ```
 
-which writes `results/validation_comparison/cumulative_val_micro_macro_ar1.png`. See
+Both paths write `results/validation_comparison/cumulative_val_micro_macro_ar1.png`. See
 `agents/plots.md` for the figure list and rationale. As of the current reset, old
 generated results have been removed and the 2023-2025 test window is reserved as an
 unseen final holdout for the fresh experiment cycle; it should only be run after the

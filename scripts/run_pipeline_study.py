@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end study run for ONE feature block: panel -> cache -> rank -> draw -> plots.
+"""End-to-end study run: panel -> cache -> rank -> draw -> plots.
 
 The single knob is the feature block. Everything else (split, grid, books, refit arms,
 seed) is fixed by the study protocol in ``run_study.py``, so a run is reproducible and
@@ -18,6 +18,8 @@ Stages, in order:
                2023-2025 and publish its figures under
                ``results/_study_<block>/plots/<arm>/{test,val}/`` (10 per window),
                plus ``draws/arm_comparison.txt``
+    4. compare when running both blocks, publish the selected micro/macro validation
+               comparison under ``results/validation_comparison/``
 
 Both refit arms are therefore drawn and plotted, not just the winner: the ME and QE
 arm folders both end up populated, so the two cadences can be compared directly.
@@ -26,6 +28,7 @@ Arm-vs-arm comparison (ME-best, QE-best, net best) with its own overlay figures 
 metric tables is a separate step: ``python scripts/compare_arms.py <block>``.
 
 Outputs all live inside ``results/_study_<block>`` so the two blocks never mix.
+The cross-block validation comparison lives under ``results/validation_comparison``.
 
 Usage:
     python scripts/run_pipeline_study.py micro          # one block, end to end
@@ -52,6 +55,7 @@ for _path in (PROJECT_ROOT / "src", PROJECT_ROOT / "scripts"):
         sys.path.insert(0, str(_path))
 
 import run_study
+import plot_validation_comparison
 from macro_panel import FIRM_COLUMNS, FEATURE_SETS, build_panel
 from models import specs_from_config
 from run_backtest import GRID_ENTRIES
@@ -101,6 +105,25 @@ def run_block(feature_set: str, jobs: int, skip_cache: bool, refresh: bool) -> P
     return winner
 
 
+def run_validation_comparison() -> Path:
+    """Write the cross-block validation comparison figure."""
+    _heading("validation comparison: selected micro + macro + baselines")
+    blocks = {
+        feature_set: plot_validation_comparison.selected_block(feature_set)
+        for feature_set in FEATURE_SETS
+    }
+    out = plot_validation_comparison.plot(blocks)
+    print(f"wrote {run_study._rel(out)}", flush=True)
+    for feature_set, block in blocks.items():
+        winner = block["winner"]
+        print(f"{feature_set}: {winner['model']['name']} / "
+              f"{winner['combo']['target']} / {winner['combo']['rebalance']} / "
+              f"{winner['combo']['refit']} / {winner['book']['name']} "
+              f"(val net Sharpe {winner['metrics']['net_sharpe']:.4f})",
+              flush=True)
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -133,6 +156,7 @@ def main() -> int:
     run_study.init_run(panel, benchmark)
     failures: list[tuple[str, str]] = []
     winners: dict[str, Path] = {}
+    comparison_out: Path | None = None
     started = time.perf_counter()
 
     for block in blocks:
@@ -145,6 +169,17 @@ def main() -> int:
         except Exception:
             failures.append((block, traceback.format_exc(limit=3)))
             print(f"\n!! {block} failed:\n{traceback.format_exc()}", flush=True)
+
+    if not failures and args.features == "both":
+        try:
+            comparison_out = run_validation_comparison()
+        except SystemExit as exc:
+            failures.append(("validation_comparison", str(exc)))
+            print(f"\n!! validation comparison failed: {exc}", flush=True)
+        except Exception:
+            failures.append(("validation_comparison", traceback.format_exc(limit=3)))
+            print(f"\n!! validation comparison failed:\n{traceback.format_exc()}",
+                  flush=True)
 
     _heading(f"summary ({time.perf_counter() - started:.0f}s)")
     import json
@@ -166,6 +201,11 @@ def main() -> int:
                   f"{{test,val}}/  ({n} figures)")
         if (study_dir / "draws" / "arm_comparison.txt").exists():
             print(f"       {run_study._rel(study_dir / 'draws' / 'arm_comparison.txt')}")
+    if comparison_out is not None:
+        print(f"comparison ok      {run_study._rel(comparison_out)}")
+    for name, detail in failures:
+        if name not in blocks:
+            print(f"{name} FAILED  {detail.splitlines()[0]}")
 
     if failures:
         print(f"\n{len(failures)} block(s) failed", flush=True)
