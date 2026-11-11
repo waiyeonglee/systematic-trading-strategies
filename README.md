@@ -29,7 +29,7 @@ python scripts/compare_arms.py both
 
 # 5. standalone baselines on validation/test windows
 python scripts/run_trend_baseline.py               # SMA40 / MOM52 -> results/trend_baseline/
-python scripts/run_forecast_baseline.py --horizon 4  # AR(1) OOS R² -> results/forecast_baseline/
+python scripts/run_forecast_baseline.py --horizon 4  # AR(1) forecasts + traded book -> results/forecast_baseline/
 
 ```
 
@@ -89,8 +89,8 @@ scripts/compare_arms.py      # ME vs QE side-by-side figures + metric txt (valid
 scripts/run_backtest.py      # single walk-forward backtest / test draw (grid or pinned spec)
 scripts/run_trend_baseline.py  # rule-based baseline: SMA40 / MOM52 long/flat on val + test
                              # -> results/trend_baseline/
-scripts/run_forecast_baseline.py  # AR(1) forecast baseline (prediction space only)
-                             # -> results/forecast_baseline/
+scripts/run_forecast_baseline.py  # AR(1) baseline: forecasts + traded book, per window
+                             # -> results/forecast_baseline/ar1_h<H>/
 src/                         # labels.py, features.py, macro.py, models.py, splits.py,
                              # prediction_cache.py, portfolio.py, metrics.py,
                              # baselines.py, pipeline.py, plots.py, utils/
@@ -101,7 +101,8 @@ results/                     # run tables per tag + _study_<block>/ summaries an
                              # cache (committed, ~22 MB npz); study draws (tables, series)
                              # and figures live under results/_study_<block>/draws|plots/<arm>/;
                              # results/trend_baseline/ holds the rule-path measurement;
-                             # results/forecast_baseline/ holds the AR(1) OOS-R² tables
+                             # results/forecast_baseline/ holds the AR(1) forecast metrics,
+                             # its traded book, and the per-year breakdown
 ```
 
 ## Setup
@@ -190,8 +191,10 @@ python scripts/compare_arms.py macro            # one block only
 python scripts/run_trend_baseline.py
 python scripts/run_trend_baseline.py --rule sma40
 
-# AR(1) forecast baseline (no positions, no costs): OOS R² against zero and against
-# the historical mean, refit QE on a rolling 8y window; H=4 matches the winner's horizon
+# AR(1) baseline: forecasts (OOS R² vs zero and vs the historical mean) plus a traded
+# book on the study's own cadence, so it is comparable on Sharpe and drawdown.
+# Writes results/forecast_baseline/ar1_h<H>/{metrics,by_year,book_metrics,book_by_year}.csv
+# plus per-window predictions.csv and book.csv; H=4 matches the micro winner's horizon.
 python scripts/run_forecast_baseline.py --horizon 4
 python scripts/run_forecast_baseline.py --horizon 1
 

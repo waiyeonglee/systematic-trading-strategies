@@ -1,0 +1,11 @@
+{
+  "rebalance": "4w",
+  "vol_window": 24,
+  "vol_min_periods": 20,
+  "vol_target": 0.1,
+  "vol_target_cap": 1.0,
+  "vol_target_rf": 0.03,
+  "vol_target_lev_fee": 0.0,
+  "cost_gate_multiple": 1.0,
+  "broker": "moomoo"
+}

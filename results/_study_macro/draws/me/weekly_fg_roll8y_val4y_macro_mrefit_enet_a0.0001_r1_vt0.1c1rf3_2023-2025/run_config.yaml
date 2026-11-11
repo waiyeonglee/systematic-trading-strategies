@@ -130,8 +130,6 @@ validation:
   window_train_bars: 416
   window_val: 4y
   refit_every: ME
-  ic_t_min: null
-  ic_gate_window: null
 model:
   mode: single
   target: absolute12

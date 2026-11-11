@@ -136,31 +136,18 @@ def oos_r2(actual: np.ndarray, predicted: np.ndarray) -> float:
 def forecast_metrics(preds: pd.DataFrame, target_col: str = TARGET_COL) -> dict:
     """Quality of the return forecasts themselves, independent of trading.
 
-    The rank IC compares the prediction against the target column the model was
-    trained on (``fwd_ret_4bar`` or ``fwd_ret_12bar``): the forward return realised
-    from ``t+1 -> t+H`` for features dated at ``t``.
-
     Args:
         preds: Predictions panel with ``pred``, ``fwd_ret`` and ``target_col``.
         target_col: Label the model was trained on.
 
     Returns:
-        ``oos_r2``, ``rmse``, ``direction_acc``, ``corr``, ``rank_ic_mean`` and
-        ``rank_ic_t``.
+        ``oos_r2`` and ``rmse``.
     """
     require_columns(preds, ["pred", "fwd_ret", target_col], "predictions panel")
     actual, predicted = preds[target_col].values, preds["pred"].values
-    nonzero = actual != 0
-    rank_ic = preds.groupby(level="date").apply(
-        lambda group: group["pred"].corr(group[target_col], method="spearman")
-    )
     return {
         "oos_r2": oos_r2(actual, predicted),
         "rmse": float(np.sqrt(np.mean((actual - predicted) ** 2))),
-        "direction_acc": float(np.mean(np.sign(predicted[nonzero]) == np.sign(actual[nonzero]))),
-        "corr": float(np.corrcoef(predicted, actual)[0, 1]),
-        "rank_ic_mean": rank_ic.mean(),
-        "rank_ic_t": rank_ic.mean() / rank_ic.std(ddof=1) * np.sqrt(rank_ic.count()),
     }
 
 

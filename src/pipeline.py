@@ -546,8 +546,6 @@ def run_parameters(results: dict, feature_cols: list[str]) -> dict:
             "window_train_bars": config.window_train_bars,
             "window_val": results["window_val"],
             "refit_every": config.refit_every,
-            "ic_t_min": None,
-            "ic_gate_window": None,
         },
         "model": {
             "mode": config.mode,

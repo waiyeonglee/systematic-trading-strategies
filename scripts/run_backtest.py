@@ -93,8 +93,10 @@ def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
         ``(panel, benchmark_close, feature_cols)`` where the panel is indexed by
         ``(date, ticker)`` with the raw feature list from ``src.features``,
         ``fwd_ret`` (1-bar, earned by the book) and the 1/4/12-bar training labels.
-        Rows without a realised label are dropped, so the panel ends at 2025-09-26
-        (13-bar 12-week label tail, shared by all look-aheads). The joint
+        Rows whose *training target* is not yet realised are kept, so the panel runs
+        to the last bar with a mark-to-market close. An inner join would cut the last
+        ``H + 1`` bars off every split; the unlabelled rows are dropped inside each
+        training slice instead (``models.walk_forward_predict``). The joint
         micro/macro study builds its feature blocks in ``scripts/macro_panel.py``.
     """
     raw_dir = raw_data_dir("weekly")
@@ -106,14 +108,15 @@ def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
     close_wide = pd.DataFrame({ticker: prices[ticker]["Close"] for ticker in TRADABLE_ETFS}
                               ).sort_index()
     labels = make_labels(close_wide)
-    panel = (features[feature_columns()]
-             .join(labels, how="inner")
-             .dropna()          # drop the warmup rows with NaN features and the unlabelled tail
+    cols = feature_columns()
+    panel = (features[cols]
+             .join(labels, how="left")
+             .dropna(subset=cols + ["fwd_ret"])   # warmup rows and mark-to-market tail
              .sort_index())
 
     benchmark_close = benchmark["Close"].astype(float).sort_index()
     benchmark_close.index = pd.to_datetime(benchmark_close.index)
-    return panel, benchmark_close, feature_columns()
+    return panel, benchmark_close, cols
 
 
 def default_config(horizon: int, vol_target: bool | float | None,
