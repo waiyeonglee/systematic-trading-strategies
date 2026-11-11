@@ -5,6 +5,46 @@ Standalone implementation of a cross-asset weekly trend-following strategy
 with SPY as benchmark, plus macro state interactions including the CNN Fear & Greed
 index.
 
+## Quick start (end to end)
+
+```bash
+# 0. setup: create .venv with pinned dependencies (Python 3.13)
+uv sync
+source .venv/bin/activate
+
+# 1. data (optional): raw weekly OHLCV, Data2025.xlsx and fear-greed are committed;
+#    only re-fetch from Yahoo Finance if you want to refresh them
+# python scripts/fetch_data.py
+
+# 2. features: features.csv (micro) + features_macro.csv (114-column macro panel)
+python scripts/build_features.py
+
+# 3. study, per feature block: cache -> rank (2019-2022 val) -> draw (2023-2025 test) -> plots
+#    -> results/_study_{micro,macro}/
+python scripts/run_pipeline_study.py both
+
+# 4. ME vs QE arm comparison (+ AR(1) baseline) -> results/_study_<block>/comparison/
+python scripts/compare_arms.py both
+
+# 5. baselines
+python scripts/run_trend_baseline.py               # SMA40 / MOM52 -> results/trend_baseline/
+python scripts/run_forecast_baseline.py --horizon 4  # AR(1) OOS R² -> results/forecast_baseline/
+
+# 6. report figure: selected micro/macro + EW-16 + SPY + AR(1)
+#    -> results/validation_comparison/
+python scripts/plot_validation_comparison.py
+
+# 7. final holdout: the validation-selected model (validation_winner.json) drawn once
+#    on the 2023-2025 test set, per feature block
+#    -> results/_study_<block>/draws/<arm>/ + plots/<arm>/{test,val}/
+python scripts/run_study.py test                    # both blocks
+# python scripts/run_study.py test --features macro # one block only
+```
+
+Steps 3–5 and 7 touch the 2023-2025 test window, so per the holdout discipline below run
+them only once the validation-selected configuration is locked. Use
+`python scripts/run_study.py rank` instead of step 3 to stop at the validation ranking.
+
 ## Dataset (fixed window)
 
 - End date fixed at **2026-01-01** (fetch end exclusive **2026-01-02**).
