@@ -78,7 +78,7 @@ cache).
 | 07 | `weights_heatmap` | date x ticker weight heatmap | compact read of which assets carried the risk at which times |
 | 08 | `holdings_counts` | n holdings / n long / n short | breadth of the book over time (long-short balance) |
 | 09 | `annual_returns` | calendar-year net returns, strategy vs benchmarks + **AR(1) baseline** | year-by-year consistency (vs the OOS R² by year) |
-| 10 | `oos_r2_by_year` | forecast OOS R² per calendar year | the model-quality view behind the book — shows whether signal decayed |
+| 10 | `oos_r2_by_year` | forecast OOS R² per calendar year | the model-quality view behind the book — shows whether signal decayed. Years the book traded but the prediction panel does not cover (e.g. a panel ending before the last label horizon) are drawn as a hatched, red `0` labelled *no predictions*: they were not scored, so the zero is a marker, not a measured R² (`oos_r2_by_period` records the reason in its `unscored` attrs and the run's `run_config.yaml` records `data.labels_sampled_through`) |
 
 Every PNG is self-contained for a report: the visible header is model + window dates.
 The old grey top subtitle with net Sharpe / maxDD / total / ann ret / ann vol,

@@ -14,7 +14,8 @@ measured on, and the validation window the model was selected on):
     07_weights_heatmap      date x ticker weight heatmap
     08_holdings_counts      n holdings / n long / n short over time
     09_annual_returns       calendar-year net returns vs benchmarks + AR(1) baseline
-    10_oos_r2_by_year       out-of-sample R2 per calendar year
+    10_oos_r2_by_year       out-of-sample R2 per calendar year (years with no
+                            predictions are marked 0, hatched and labelled)
 
 The AR(1) baseline is drawn in every figure that shows a benchmark: a per-ticker
 one-lag regression of the forward return on the trailing return, traded with the same
@@ -41,7 +42,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from metrics import max_drawdown, oos_r2_by_period, perf_stats
+from metrics import max_drawdown, oos_r2_by_period, perf_stats, used_years
 
 # ---------------------------------------------------------------------------
 # style + colours (fixed, report-friendly)
@@ -362,14 +363,35 @@ def _plot_annual_returns(book: pd.DataFrame, benchmarks: dict[str, pd.Series],
 
 
 def _plot_oos_r2_by_year(preds: pd.DataFrame, target_col: str,
-                         path: Path, header: str, subtitle: str) -> None:
-    by_year = oos_r2_by_period(preds, target_col)
+                         path: Path, header: str, subtitle: str,
+                         expected_years=None) -> None:
+    by_year = oos_r2_by_period(preds, target_col, expected_years)
+    unscored = by_year.attrs.get("unscored", {})
+    labels = [str(y) for y in by_year.index]
+    values = by_year.to_numpy(dtype=float)
+    colours = [C_COST if label in unscored else C_STRATEGY for label in labels]
     fig, ax = plt.subplots(figsize=(9.2, 4.4))
-    ax.bar([str(y) for y in by_year.index], by_year.values, color=C_STRATEGY,
-           width=0.55)
+    bars = ax.bar(labels, values, color=colours, width=0.55)
+    for bar, label in zip(bars, labels):
+        if label in unscored:
+            bar.set_hatch("//")
+            bar.set_edgecolor("white")
+    ax.set_xlim(-0.6, len(labels) - 0.4)
     ax.axhline(0.0, color="#555555", lw=0.8)
     ax.set_title(header)
     ax.set_ylabel("OOS R² (vs zero forecast)")
+    if unscored:
+        # tag the marked years inside the axes: the zero bar itself is invisible
+        low, high = ax.get_ylim()
+        span = (high - low) or 1.0
+        for position, label in enumerate(labels):
+            if label in unscored:
+                ax.text(position, low + 0.06 * span, f"{label}\nno predictions",
+                        ha="center", va="bottom", fontsize=7.5, color=C_COST)
+        years = ", ".join(unscored)
+        note = (f"{years}: no predictions to score, marked 0 (hatched) — "
+                f"not a measured zero")
+        subtitle = f"{subtitle} · {note}" if subtitle else note
     _finish(fig, path, subtitle)
 
 
@@ -423,5 +445,6 @@ def plot_run(results: dict, out_dir: Path) -> Path:
         for stem, draw in steps:
             draw(book, benchmarks, out / f"{window}_{stem}.png", header, "")
         _plot_oos_r2_by_year(preds, results["config"].target_col,
-                             out / f"{window}_10_oos_r2_by_year.png", header, "")
+                             out / f"{window}_10_oos_r2_by_year.png", header, "",
+                             expected_years=used_years(book))
     return out

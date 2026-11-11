@@ -119,7 +119,17 @@ def period_stats(returns: pd.Series, ppy: int = 252,
 
 
 def oos_r2(actual: np.ndarray, predicted: np.ndarray) -> float:
-    """Out-of-sample R² against a zero forecast: ``1 - SSE / sum(actual²)``."""
+    """Out-of-sample R² against a zero forecast: ``1 - SSE / sum(actual²)``.
+
+    Pairs whose actual (or forecast) is missing are dropped first: an unrevealed
+    label at the end of the window would otherwise turn the whole sum into NaN.
+    """
+    actual = np.asarray(actual, dtype=float)
+    predicted = np.asarray(predicted, dtype=float)
+    finite = np.isfinite(actual) & np.isfinite(predicted)
+    actual, predicted = actual[finite], predicted[finite]
+    if actual.size == 0:
+        return float("nan")
     return float(1 - np.sum((actual - predicted) ** 2) / np.sum(actual ** 2))
 
 
@@ -154,12 +164,42 @@ def forecast_metrics(preds: pd.DataFrame, target_col: str = TARGET_COL) -> dict:
     }
 
 
-def oos_r2_by_period(preds: pd.DataFrame, target_col: str = TARGET_COL) -> pd.Series:
-    """Out-of-sample R² per calendar year."""
+def oos_r2_by_period(preds: pd.DataFrame, target_col: str = TARGET_COL,
+                     expected_years=None) -> pd.Series:
+    """Out-of-sample R² per calendar year.
+
+    Args:
+        preds: Predictions panel indexed by ``(date, ticker)``.
+        target_col: Label the R² is measured against.
+        expected_years: Years that must appear even when ``preds`` has no rows for
+            them (e.g. the requested test window). A missing year has no forecast to
+            score, so it is labelled ``"no predictions"`` and set to 0 rather than
+            dropped; an existing year whose labels are all NaN keeps its NaN.
+
+    Returns:
+        R² per year, named ``"oos_r2"``; the ``.attrs["unscored"]`` map holds the
+        ``"no predictions"`` reason for every year that was marked 0.
+    """
     years = preds.index.get_level_values("date").year
-    return preds.groupby(years).apply(
+    by_year = preds.groupby(years).apply(
         lambda group: oos_r2(group[target_col].values, group["pred"].values)
-    )
+    ).rename("oos_r2")
+    unscored = {str(year): "no predictions"
+                for year in (expected_years or ())
+                if year not in set(years)}
+    if unscored:
+        by_year = (pd.concat([by_year, pd.Series(
+            {int(year): 0.0 for year in unscored}, dtype=float)]).sort_index()
+            .rename("oos_r2"))
+    by_year.attrs["unscored"] = unscored
+    return by_year
+
+
+def used_years(values) -> range:
+    """Whole calendar years spanned by a date-indexed series (e.g. a book or panel)."""
+    index = pd.DatetimeIndex(values.index.get_level_values("date") if isinstance(
+        values.index, pd.MultiIndex) else values.index)
+    return range(index.year.min(), index.year.max() + 1)
 
 
 def oos_r2_benchmarks(preds: pd.DataFrame, benchmark_close: pd.Series,

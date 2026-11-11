@@ -510,6 +510,11 @@ def selected_spec(config: PipelineConfig, name: str) -> ModelSpec:
     raise ValueError(f"selected model {name!r} is not in the configured grid")
 
 
+def labels_sampled_through(preds: pd.DataFrame) -> str:
+    """Last prediction date in the panel, i.e. the end of the scored window."""
+    return f"{preds.index.get_level_values('date').max():%Y-%m-%d}"
+
+
 def run_parameters(results: dict, feature_cols: list[str]) -> dict:
     """Plain mapping of the effective run settings, for ``run_config.yaml``.
 
@@ -524,7 +529,11 @@ def run_parameters(results: dict, feature_cols: list[str]) -> dict:
     return {
         "run": results["run_tag"],
         "seed": config.seed,
-        "data": {"start_date": START_DATE, "end_date": END_DATE_INCLUSIVE},
+        "data": {"start_date": START_DATE, "end_date": END_DATE_INCLUSIVE,
+                 # eval panel end: the prediction/plot window can stop before the
+                 # requested test_end (e.g. missing macro state or an unrealised
+                 # label horizon), and that cut is what leaves years unscored.
+                 "labels_sampled_through": labels_sampled_through(results["preds"])},
         "features": {"frequency": config.freq,
                      "has_macro_fear_greed": any(str(name).endswith("__x__fear_greed")
                                                  for name in columns),

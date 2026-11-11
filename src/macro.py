@@ -95,6 +95,10 @@ def macro_state(dates, monthly: pd.DataFrame | None = None,
     a bar dated on a month end gets that month's predecessor (never same-day data).
     ``lag_months=0`` allows a bar on the last day of a month to use that month's value.
 
+    Bars dated after the last published month end get no state row, i.e. NaN macro
+    values. Callers that drop NaN rows silently truncate the panel, so a long trailing
+    run of such bars usually means a stale macro input rather than a normal edge.
+
     Args:
         dates: DatetimeIndex (or date-like sequence) of bar dates.
         monthly: Output of :func:`load_macro_monthly`; loaded on demand when ``None``.

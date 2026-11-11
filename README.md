@@ -177,7 +177,7 @@ python scripts/run_pipeline_study.py macro --jobs 4
 #        figures/cumulative_{test,val}.png   ME | QE, one panel each, + AR(1) baseline
 #        figures/drawdown_test.png           underwater curves, same layout
 #        metrics_aggregate.txt               book metrics per arm x window
-#        metrics_forecast.txt                OOS R², direction acc, rank IC
+#        metrics_forecast.txt                OOS R² vs zero / SPY / EW-16
 #        metrics_by_year.txt                 the same split by calendar year
 #      (* marks the validation-selected arm in every table; the AR(1) baseline is
 #       the last row of every table and a grey dashed line in every figure)
@@ -242,7 +242,7 @@ results/_study_{micro,macro}/
     figures/cumulative_{test,val}.png   # ME | QE panels, red ★ on the selected arm
     figures/drawdown_test.png           # underwater curves, same layout
     metrics_aggregate.txt               # book metrics per arm x window (+ AR(1))
-    metrics_forecast.txt                # OOS R², direction acc, rank IC (+ AR(1))
+    metrics_forecast.txt                # OOS R² vs zero / SPY / EW-16 (+ AR(1))
     metrics_by_year.txt                 # the same split by calendar year (+ AR(1))
 ```
 

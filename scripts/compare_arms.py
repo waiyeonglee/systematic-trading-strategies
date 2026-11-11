@@ -13,7 +13,7 @@ Outputs, inside ``results/_study_<block>/comparison/``::
       cumulative_val.png         the same on the validation window
       drawdown_test.png          underwater curves, same two-panel layout
     metrics_aggregate.txt        book metrics per arm x window
-    metrics_forecast.txt         OOS R², rank IC, ...
+    metrics_forecast.txt         OOS R² vs zero / SPY / EW-16, per arm x window
     metrics_by_year.txt          the same metrics split by calendar year
 
 Every figure and table carries the AR(1) baseline as well: a one-lag regression of
@@ -55,7 +55,8 @@ import pandas as pd
 import run_study
 from baselines import ar1_baseline
 from macro_panel import FEATURE_SETS, build_panel
-from metrics import forecast_metrics, oos_r2_by_period, period_stats, perf_stats
+from metrics import (forecast_metrics, oos_r2_benchmarks, oos_r2_by_period,
+                     period_stats, perf_stats)
 from study_worker import VOL_WARMUP_BARS
 
 TEST = run_study.TEST
@@ -298,19 +299,28 @@ def plot_drawdown(arms: list[dict], out: Path, baseline: dict | None = None) -> 
 
 METRIC_KEYS = ("sharpe", "ann_return", "ann_vol", "max_drawdown", "total_return",
                "hit_rate")
-FORECAST_KEYS = ("oos_r2", "direction_acc", "rank_ic_mean", "rank_ic_t", "corr")
+FORECAST_KEYS = ("oos_r2", "oos_r2_vs_spy", "oos_r2_vs_ew16")
 
 
 def _forecast_block(arm: dict, window: str) -> dict:
-    """Forecast-quality metrics of an arm's predictions on one window."""
+    """OOS R² of an arm's predictions on one window, against three forecasts.
+
+    All three use the same ``1 - SSE_model / SSE_forecast`` form, so they differ only
+    in the forecast they beat: a zero forecast, SPY's realised return over the label
+    window, and the cross-sectional mean target (equal-weight-16).
+    """
     results = arm["results"]
     preds = results["preds"] if window == "test" else results["val_preds"]
     target = arm["config"].target_col
+    out = {key: None for key in FORECAST_KEYS}
     try:
-        metrics = forecast_metrics(preds, target)
+        out["oos_r2"] = forecast_metrics(preds, target)["oos_r2"]
+        pooled = oos_r2_benchmarks(preds, results["benchmark_close"], target)
+        out["oos_r2_vs_spy"] = float(pooled.loc["pooled", "oos_r2_vs_spy"])
+        out["oos_r2_vs_ew16"] = float(pooled.loc["pooled", "oos_r2_vs_ew16"])
     except Exception:
-        metrics = {}
-    return {key: metrics.get(key) for key in FORECAST_KEYS}
+        pass
+    return out
 
 
 def aggregate_rows(arms: list[dict], window: str, baseline: dict | None = None) -> list[dict]:
@@ -404,7 +414,7 @@ AGGREGATE_COLUMNS = ["arm", "window", "model", "combo", "book",
                      "net_max_drawdown", "net_total_return", "net_hit_rate",
                      "gross_sharpe"]
 FORECAST_COLUMNS = ["arm", "window", "model", "combo",
-                    "oos_r2", "direction_acc", "rank_ic_mean", "rank_ic_t", "corr"]
+                    "oos_r2", "oos_r2_vs_spy", "oos_r2_vs_ew16"]
 YEARLY_COLUMNS = ["arm", "window", "year", "sharpe", "ann_return", "ann_vol",
                   "max_drawdown", "total_return", "hit_rate", "oos_r2"]
 
@@ -454,8 +464,11 @@ def compare_block(feature_set: str, panel, benchmark) -> dict:
         [{k: row[k] for k in FORECAST_COLUMNS} for row in aggregate],
         FORECAST_COLUMNS,
         f"{feature_set} - forecast quality per refit arm (validation and test)",
-        "oos_r2 = 1 - SSE/sum(y^2) against a zero forecast on the same rows;\n"
-        "rank_ic_* = cross-sectional Spearman IC of the prediction vs the label.\n"
+        "oos_r2 = 1 - SSE_model/SSE_forecast on the same rows, for three forecasts:\n"
+        "  oos_r2          forecast = 0 (beats a zero forecast)\n"
+        "  oos_r2_vs_spy   forecast = SPY's realised return over the label window\n"
+        "  oos_r2_vs_ew16  forecast = the cross-sectional mean target (equal-weight-16)\n"
+        "positive = the model's forecasts have the lower squared error.\n"
         + star_note,
         root / "metrics_forecast.txt"))
     written.append(write_table(

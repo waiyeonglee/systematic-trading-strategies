@@ -3,15 +3,15 @@ macro - book metrics per refit arm (validation and test)
 
 arm             window  model            combo                book                 net_sharpe  net_ann_return  net_ann_vol  net_max_drawdown  net_total_return  net_hit_rate  gross_sharpe
 --------------  ------  ---------------  -------------------  -------------------  ----------  --------------  -----------  ----------------  ----------------  ------------  ------------
-ME              val     enet_a0.01_r0.5  la4_weekly_refitME   w04_vt10_rf3_cap1.0  1.1555      0.1289          0.1103       -0.1384           0.6278            0.5981        1.1628      
-QE *            val     enet_a0.01_r1    la12_weekly_refitQE  w48_vt20_rf3_cap1.0  1.1763      0.1686          0.1411       -0.1404           0.8708            0.5981        1.1792      
-AR(1) baseline  val     ar1              la12_weekly_refitQE  w48_vt20_rf3_cap1.0  0.2179      0.0211          0.1425       -0.2444           0.0875            0.5455        0.2327      
-ME              test    enet_a0.01_r0.5  la4_weekly_refitME   w04_vt10_rf3_cap1.0  0.9620      0.0772          0.0807       -0.0871           0.2481            0.5871        0.9964      
-QE *            test    enet_a0.01_r1    la12_weekly_refitQE  w48_vt20_rf3_cap1.0  1.4307      0.1375          0.0932       -0.0797           0.4683            0.6194        1.4531      
-AR(1) baseline  test    ar1              la12_weekly_refitQE  w48_vt20_rf3_cap1.0  1.3208      0.1349          0.0997       -0.0954           0.4582            0.6194        1.3419      
+ME *            val     enet_a0.0001_r1  la12_4w_refitME      w24_vt10_rf3_cap1.0  1.2910      0.1354          0.1025       -0.0933           0.6659            0.5742        1.2908      
+QE              val     enet_a0.01_r0    la12_weekly_refitQE  w04_vt20_rf3_cap1.0  1.2773      0.1596          0.1218       -0.1089           0.8130            0.5837        1.3371      
+AR(1) baseline  val     ar1              la12_4w_refitME      w24_vt10_rf3_cap1.0  0.1321      0.0087          0.1190       -0.2110           0.0353            0.5598        0.1276      
+ME *            test    enet_a0.0001_r1  la12_4w_refitME      w24_vt10_rf3_cap1.0  0.5312      0.0417          0.0834       -0.0813           0.1294            0.5161        0.5558      
+QE              test    enet_a0.01_r0    la12_weekly_refitQE  w04_vt20_rf3_cap1.0  1.0288      0.0893          0.0869       -0.0990           0.2905            0.5871        1.1100      
+AR(1) baseline  test    ar1              la12_4w_refitME      w24_vt10_rf3_cap1.0  1.2233      0.1501          0.1204       -0.1196           0.5171            0.6065        1.2186      
 
 net_* = after costs; gross_sharpe = before costs.
-* = the arm selected on the validation window (QE); the test
+* = the arm selected on the validation window (ME); the test
 window is reported for both arms but selects nothing.
 AR(1) baseline = one-lag AR(1) on the trailing return, no features,
 traded with the selected arm's own book, costs and refit cadence.
