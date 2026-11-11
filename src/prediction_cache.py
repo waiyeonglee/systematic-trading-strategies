@@ -193,15 +193,6 @@ def _degenerate_record(path: Path) -> dict | None:
     return json.loads(marker.read_text())
 
 
-def degenerate_markers(cache_root: Path | None = None) -> dict[str, dict]:
-    """``{marker stem: record}`` for every degenerate prediction set in the cache."""
-    root = Path(cache_root or PREDICTIONS_DIR)
-    out = {}
-    for marker in root.glob(f"*/{DEGENERATE_DIRNAME}/*.json"):
-        out[marker.stem] = json.loads(marker.read_text())
-    return out
-
-
 def _cached_or_compute(path: Path, panel: pd.DataFrame, config, spec: ModelSpec,
                        start: str, end: str, refresh: bool, verbose: bool,
                        compute, *, check_degenerate: bool = True) -> pd.DataFrame:

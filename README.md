@@ -23,12 +23,11 @@ python scripts/build_features.py
 #    also writes the selected micro/macro validation comparison
 #    -> results/_study_{micro,macro}/ + results/validation_comparison/
 python scripts/run_pipeline_study.py both
-python scripts/run_pipeline_study.py both
 
 # 4. ME vs QE arm comparison (+ AR(1) baseline) -> results/_study_<block>/comparison/
 python scripts/compare_arms.py both
 
-# 5. standalone baselines on validation/test windows`
+# 5. standalone baselines on validation/test windows
 python scripts/run_trend_baseline.py               # SMA40 / MOM52 -> results/trend_baseline/
 python scripts/run_forecast_baseline.py --horizon 4  # AR(1) OOS R² -> results/forecast_baseline/
 
@@ -128,6 +127,8 @@ python scripts/run_backtest.py                  # single walk-forward run: selec
 python scripts/run_backtest.py --model enet_a0.01_r1 --horizon 1 --rebalance weekly # single cell
 python scripts/run_backtest.py --horizon 4 --no-vol-target
 python scripts/run_backtest.py --test-start 2020-01-01 --test-end 2022-12-31 --window-val 3y
+# ad-hoc spans write tables/series only: report figures are published solely for the
+# pre-registered 2023-01-01..2025-12-31 window (pipeline.REPORT_TEST_WINDOW)
 # design rules (enforced in default_config):
 #   look-ahead must be >= rebalance frequency: weekly(1w) x {1,4,12} · 4w x {4,12} · 12w x {12}
 #   refit must be no more frequent than the cadence (refit_interval >= prediction_interval):
@@ -235,9 +236,10 @@ folder:
 
 ```
 results/_study_{micro,macro}/
-  draws/<arm>/<run_tag>/      # arm = me | qe; tables, series/, plots/
+  draws/<arm>/<run_tag>/      # arm = me | qe; tables, series/ (no per-run plots/)
   plots/<arm>/{test,val}/     # that draw's 10 figures per window (with AR(1) baseline)
-  arm_comparison.txt          # one row per arm + which arm wins on the test window
+  arm_comparison.txt          # only after `draw`: one row per arm + which arm wins
+                              # on the test window (descriptive, not a selection rule)
   comparison/                 # written by scripts/compare_arms.py
     figures/cumulative_{test,val}.png   # ME | QE panels, red ★ on the selected arm
     figures/drawdown_test.png           # underwater curves, same layout
@@ -299,11 +301,10 @@ python scripts/plot_validation_comparison.py
 ```
 
 Both paths write `results/validation_comparison/cumulative_val_micro_macro_ar1.png`. See
-`agents/plots.md` for the figure list and rationale. As of the current reset, old
-generated results have been removed and the 2023-2025 test window is reserved as an
-unseen final holdout for the fresh experiment cycle; it should only be run after the
-validation-selected configuration is locked.
-See `agents/current_state.md` for the history log, `agents/feature_engineering.md`
+`agents/plots.md` for the figure list and rationale. Both blocks have been ranked and
+drawn once on the 2023-2025 test window after their validation winners were locked;
+the test window is reported, never used for selection.
+See `agents/current_state.md` for the current results state, `agents/feature_engineering.md`
 for the features, `agents/model_design.py` for the design (grid, portfolio
 defaults, split & gates), `agents/validation_and_ablation.md` for the validation
 protocol and holdout discipline.

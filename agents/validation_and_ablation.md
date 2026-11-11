@@ -29,16 +29,16 @@ were fixed **before** looking at market regimes.
 | Warmup | 2004-01-02..2010-12-31 | feature / indicator warmup before training starts |
 | Train | **rolling history before each refit** | rolling **8y (416 weeks)** minus the **embargo (= look-ahead: 1/4/12 bars)** at each refit; the window advances at every refit |
 | **Validation (combined)** | **2019-01-01..2022-12-31** | the single ranking window for the whole model x strategy space |
-| **Test (final)** | **2023-01-01..2025-12-31** | reserved final draw of the ranking winner; effective end 2025-09-26 under a 12-week hold |
+| **Test (final)** | **2023-01-01..2025-12-31** | drawn once per block after selection was locked; measured to 2025-12-19 (the last bar of the rebuilt panel) |
 
 ### 1.2 Rules that keep the numbers honest
 
 1. **One ranking, one window.** Every (model, cadence, look-ahead, refit, book) cell
    is scored on the same dates with the same metric (net Sharpe). No cell is selected
    on the test window.
-2. **The test window selects nothing.** For the current reset experiment, the
-   2023-2025 test window has not been run and remains reserved for one final draw
-   after the validation-selected configuration is locked.
+2. **The test window selects nothing.** The 2023-2025 window was drawn once per block
+   after the validation-selected configuration was locked, and is reported for the
+   record only.
 3. **Gate bars are recomputed on the test window.** SPY and EW-16 buy-and-hold stats
    on 2023-01-01..2025-12-31 are pre-registered before the draw
    (`pipeline.trend_success_verdict`: net Sharpe >= the weaker benchmark AND
@@ -102,9 +102,8 @@ look-ahead, refit) under
 - Degenerate cells (constant / near-zero predictions on the window) are kept in the
   ranking for the record but can never win.
 - **Cost:** the book simulation is a numpy state machine
-  (`portfolio.build_forecast_vol_portfolio`), so one book takes 17–19 ms and the
-  9,900-candidate ranking runs faster than the old mixed-family/RFF/weekly-refit spaces; the rolling forecast
-  volatility is shared across the book cells that use the same vol window.
+  (`portfolio.build_forecast_vol_portfolio`), so one book takes 17–19 ms; the rolling
+  forecast volatility is shared across the book cells that use the same vol window.
 - The search is pre-declared: the grid, the combos and the book cells are fixed
   before the ranking is read.
 
@@ -112,12 +111,12 @@ look-ahead, refit) under
 
 One criterion runs over the scored space: the row with the highest `net_sharpe` on
 the validation window wins, and its files are `validation_ranking.csv` and
-`validation_winner.json`. The winner will be measured once on the test window only
-after selection is locked (§5).
+`validation_winner.json`. Each block's winner was then measured once on the test
+window.
 
 A regime-stratified second criterion (gate on profitable calendar years plus
-up-capture, then maximin over the worst calendar year) ran beside it on 2026-11-04
-and was removed on 2026-11-06 — see the history note in §6.
+up-capture, then maximin over the worst calendar year) was tried and dropped; only the
+`net_sharpe` criterion is implemented.
 
 ## 4. Output format
 
@@ -158,11 +157,10 @@ states in the file itself that picking the arm by test Sharpe would be snooping 
 arm is a validation-window choice.
 
 Command: `python scripts/run_study.py rank` (8 worker processes by default; only the
-book simulation runs — the model fits come from the cache). The active space is now
-9,900 candidates after removing separate Ridge/Lasso families, RFF, and weekly refits.
-After the validation-selected configuration is locked, `test` draws the overall
-winner once on the 2023-2025 holdout; `draw` does the same for **each refit arm's**
-best candidate and writes `draws/arm_comparison.txt`.
+book simulation runs — the model fits come from the cache). The active space is 9,900
+candidates. After the validation-selected configuration is locked, `test` draws the
+overall winner once on the 2023-2025 holdout; `draw` does the same for **each refit
+arm's** best candidate and writes `draws/arm_comparison.txt`.
 
 `python scripts/run_study.py cache` fits any **missing** prediction sets without
 simulating a book — the way to complete a partial cache (e.g. after adding a model spec
@@ -174,20 +172,15 @@ newly stored or degenerate set plus a `stored / degenerate / cached` summary.
 
 ## 5. Current Experiment State
 
-As of the fresh reset, generated results have been removed and the old measured
-holdout records are no longer part of the active experiment documentation. The active
-state is:
+Both feature blocks are ranked and drawn. The active state is:
 
-- **Validation only so far:** model and strategy selection should be performed only on
-  the 2019-2022 validation window.
-- **Test set remains unseen:** the 2023-2025 window has not been run for the current
-  reset experiment and should be treated as the final holdout.
-- **One final measurement:** after the validation-selected configuration is locked,
-  run `python scripts/run_study.py test` once per feature block — add
-  `--features micro` or `--features macro`; the bare command runs both.
-
-- **No stale outputs:** any files or figures from earlier experiments are stale unless
-  regenerated after the reset.
+- **Selection was validation-only:** the ranking that chose each winner saw only
+  2019-2022.
+- **Test window measured once:** the 2023-2025 window was drawn after selection was
+  locked and is reported for the record; it selected nothing.
+- **Re-measurement:** `python scripts/run_study.py test` re-draws a block's locked
+  winner from the cache — add `--features micro` or `--features macro`; the bare
+  command runs both. Output is deterministic, so a re-run reproduces the same figures.
 
 ## 6. Status
 
@@ -196,7 +189,7 @@ state is:
   features, `macro` = the 114 interaction columns); predictions cached under
   `results/_study_<block>/predictions`; `utils.config.DEFAULT_SEED`; one selection
   criterion (§3.1) over the scored space.
-- **Promotion state:** open for the fresh experiment cycle; no 2023-2025 holdout
-  result has been recorded after the reset.
-- **Holdout discipline:** do not run or inspect 2023-2025 test outputs until the final
-  validation-selected configuration is locked.
+- **Promotion state:** each block has one measured 2023-2025 draw of its locked
+  winner. Any further modelling decision must come from the validation window.
+- **Holdout discipline:** do not re-select on the test window. Treat the existing
+  draws as descriptive out-of-sample checks.

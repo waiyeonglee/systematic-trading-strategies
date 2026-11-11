@@ -5,7 +5,7 @@ against the reference code and outputs, then re-implemented fresh in this projec
 `src/`. Implementation lives in
 `src/features.py`, `src/labels.py`, `src/utils/` and the `scripts/build_features.py`
 command; the panel is consumed by both the rule path (trend signals) and the
-fitted-model path (walk-forward ridge / elastic-net) in later steps.
+fitted-model path (walk-forward elastic net) in later steps.
 
 ## 1. Inputs
 
@@ -108,19 +108,22 @@ so its trailing 13 bars per ticker remain NaN (208 rows on the frozen weekly pan
 Rebuild outputs after changing label definitions; earlier numeric comparisons to the
 reference panel no longer apply to corrected 4-/12-week labels.
 
-**Consequence of the label lookahead:** the modelling panel ends 13 weeks before
-the last raw bar (the last 13 feature dates have no 12-bar label), so the effective
-final sample date is **2025-09-26**, not 2025-12-26. `features.csv` itself keeps those
-trailing bars with NaN labels.
+**Consequence of the label lookahead:** the *training slice* ends 13 weeks before the
+last raw bar, because the last 13 feature dates have no 12-bar label. This is a
+property of the target horizon, not of the panel: `scripts/macro_panel.py` joins the
+labels with `how="left"` and drops unlabelled rows only inside the training fit, so the
+evaluation panel keeps its trailing bars (they simply carry NaN labels and are skipped
+by the R² sum). Do not drop those rows when building the panel — doing so truncates
+every split, including the test window.
 
-## 5. Consumers (planned for later steps)
+## 5. Consumers
 
 - **Rule path**: reads the configured trend feature (`trend_sma40_ratio` default /
   `trend_mom52`) as a 0/1 signal; portfolio built on `pred`, `fwd_ret`,
-  `return_1bar` (realized-vol sizing).
-- **ML path** (mode `selection`): trains ridge / elastic-net on the feature
-  columns against `TARGET_COL` (default `fwd_ret_12bar`); `fwd_ret` sizes and
-  marks the forecast-vol book; `return_1bar` feeds realized volatility.
+  `return_1bar` (realized-vol sizing). See `scripts/run_trend_baseline.py`.
+- **ML path** (mode `selection`): trains an elastic net on the feature columns against
+  the configured target (default `fwd_ret_12bar`); `fwd_ret` sizes and marks the
+  forecast-vol book; `return_1bar` feeds realized volatility.
 - **Diagnostics**: `feature_label_correlation` reports Pearson correlation of each
   feature vs the configured label across all labelled dates → saved as
   `feature_label_correlation.csv` + heatmap `.png`.

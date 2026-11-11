@@ -1,8 +1,8 @@
 # current_state.md - project history and handover notes
 
-Current source-of-truth state for the reset experiment cycle. Old generated results,
-historical measured test records, and stale plots have been removed from the active
-project state.
+Current source-of-truth state for the experiment cycle. Both feature blocks have been
+ranked on the 2019-2022 validation window and drawn once on the 2023-2025 test window;
+their tables and figures are the current results.
 
 ---
 
@@ -38,7 +38,7 @@ project state.
 - `l1_ratio=0.0` represents the Ridge-like endpoint; `l1_ratio=1.0` represents the
   Lasso-like endpoint.
 - Removed from the active search: RFF, separate Ridge, separate Lasso, and weekly
-  refits.
+  refits. Only the Elastic Net family is instantiated.
 
 ## Active Refit Space
 
@@ -55,23 +55,26 @@ project state.
 - Base validation window: 2019-01-01 to 2022-12-31.
 - Macro validation window: 2019-01-01 to 2022-12-31.
 - Final holdout window: 2023-01-01 to 2025-12-31.
-- As of this reset, the 2023-2025 test window remains unseen for the current experiment
-  cycle and has not been run.
-- Model and strategy selection must use validation results only.
-- The 2023-2025 test window should be run once only after the final validation-selected
-  configuration is locked.
+- Model and strategy selection uses validation results only.
+- The 2023-2025 test window has been drawn once per block, after the
+  validation-selected configuration was locked; it selects nothing.
 
 ## Results State
 
-- Generated experiment artifacts under `results/` were cleared for a fresh run.
-- Any old rankings, plots, prediction caches, draws, baseline outputs, and measured
-  test records from before this reset are stale.
-- Report numbers should only come from artifacts regenerated after this reset.
-- Old historical measured test results must not be cited as current project results.
+- Both blocks are ranked (9,900 candidates each) and drawn on the test window.
+- Validation winners: micro `enet_a0.001_r1`, absolute4 / 4w / ME, book
+  `w04_vt10_rf3_cap1.0`; macro `enet_a0.0001_r1`, absolute12 / 4w / ME, book
+  `w04_vt10_rf3_cap1.0`.
+- Artefacts live under `results/_study_{micro,macro}/` (ranking, winner, draws,
+  figures, `comparison/`); standalone baselines under `results/trend_baseline/` and
+  `results/forecast_baseline/`; the micro/macro validation comparison under
+  `results/validation_comparison/`.
+- Cite report numbers only from these artefacts, and only after the command that wrote
+  them (see `README.md`) — the prediction cache makes a re-run deterministic.
 
 ## Verification State
 
-- After removing RFF, separate Ridge/Lasso, and weekly refits, the test suite passed.
+- The test suite passes.
 - Active sanity checks confirmed:
   - 20 Elastic Net specs.
   - refits restricted to `ME` and `QE`.

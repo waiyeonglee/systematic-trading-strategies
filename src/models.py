@@ -1,7 +1,9 @@
 """Model specifications and walk-forward prediction.
 
-Design (agents/model_design.py): ridge / lasso / elastic-net grid on a walk-forward
-panel, embargo = target horizon, quarterly refits on a rolling history window.
+Design (agents/model_design.py): an elastic-net grid on a walk-forward panel,
+embargo = target horizon, monthly/quarterly refits on a rolling history window.
+The ``ridge`` / ``lasso`` families remain supported by :class:`ModelSpec` but the
+active study grid is elastic net only.
 """
 
 from __future__ import annotations
@@ -57,21 +59,6 @@ class ModelSpec:
         suffix = f"_r{l1_ratio:g}" if l1_ratio is not None else ""
         return cls(f"{family}_a{alpha:g}{suffix}", penalty, alpha, l1_ratio)
 
-    @classmethod
-    def from_record(cls, record: Mapping[str, Any]) -> ModelSpec:
-        """Rebuild a spec from a stored record (``family``/``alpha``/...), e.g. a lock file.
-
-        Raises:
-            ValueError: if the record lacks ``family`` or ``alpha``, or names an
-                unknown family.
-        """
-        family = str(record.get("family", ""))
-        if "alpha" not in record:
-            raise ValueError(f"spec record {dict(record)!r} is missing 'alpha'")
-        l1_ratio = record.get("l1_ratio")
-        return cls.for_family(family, float(record["alpha"]),
-                              None if l1_ratio is None else float(l1_ratio))
-
     def build(self, seed: int = DEFAULT_SEED) -> Pipeline:
         """Return a fresh, unfitted scaler-plus-regressor pipeline."""
         if self.penalty == "l2":
@@ -82,11 +69,6 @@ class ModelSpec:
             regressor = ElasticNet(alpha=self.alpha, l1_ratio=self.l1_ratio,
                                    max_iter=10000, random_state=seed)
         return Pipeline([("scaler", StandardScaler()), ("reg", regressor)])
-
-
-def model_family(spec_name: str) -> str:
-    """Return the family prefix of a spec name, e.g. ``"enet_a0.0001_r0.5"`` -> ``"enet"``."""
-    return spec_name.split("_")[0]
 
 
 def _as_values(value: Any) -> list[float]:

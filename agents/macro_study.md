@@ -112,7 +112,7 @@ results/_study_macro/
   run_parameters.json
   draws/<arm>/<run_tag>/               # arm = me | qe: tables + series/
   plots/<arm>/{test,val}/              # 10 figures per window for that arm
-  arm_comparison.txt                   # per-arm test draws + the winning arm
+  arm_comparison.txt                   # after `draw` only: per-arm test draws
   comparison/                          # scripts/compare_arms.py: ME|QE + AR(1) tables/figures
 ```
 
@@ -129,15 +129,15 @@ shows at a glance whether the fitted features add anything over the trailing ret
   each other's predictions.
 - After selection is locked, `run_study.py test --features macro` draws the overall
   winner and publishes to `plots/<its arm>/{test,val}/` via
-  `run_pipeline(..., plots_root=arm_plots_root(refit))`; `draw --features macro` does
-  the same for every arm. The whole tree lives inside this block's folder, so the
-  micro block's draws and figures are never touched.
+  `run_pipeline(..., plots_root=arm_plots_root(refit, study_dir))`; `draw --features
+  macro` does the same for every arm. The whole tree lives inside this block's folder,
+  so the micro block's draws and figures are never touched.
 
 ## 6. Discipline notes on the test window
 
-- The 2023-2025 window has been drawn for both arms (see §7): treat it as a
-  descriptive out-of-sample check. Any further modelling decision must come from the
-  validation window only.
+- The 2023-2025 window has been drawn once for the selected configuration (see §7):
+  treat it as a descriptive out-of-sample check. Any further modelling decision must
+  come from the validation window only.
 - The enet alpha grid was calibrated on 21 features. With 114 collinear interaction
   columns the useful alpha range may sit below `1e-4`; check the number of non-zero
   coefficients per refit (degenerate candidates are flagged in the ranking) before
@@ -147,13 +147,15 @@ shows at a glance whether the fitted features add anything over the trailing ret
 
 The macro block has been ranked and drawn (9,900 candidates):
 
-- **Validation winner:** `enet_a0.01_r1`, absolute12 / weekly / QE, book
-  `w48_vt20_rf3_cap1.0` → net Sharpe **1.1763** on 2019-2022.
-- **Ties matter here.** Four books score exactly 1.1763 (the leverage cap cannot bind
-  while the volatility overlay is off, so `cap1`/`2`/`3` are the same book). The
-  ranking breaks ties deterministically (candidate order, then a stable sort), with the
-  alphabetical book name deciding between otherwise equal candidates.
-- **Test window (2023-2025), descriptive only:** the QE arm drew net Sharpe 1.3856
-  (maxDD -7.97%) and the ME arm 0.8586; the AR(1) no-feature baseline drew 1.2640. The
-  9,900-row ranking is in `validation_ranking.csv` and the per-arm figures under
-  `plots/{me,qe}/{test,val}/`.
+- **Validation winner:** `enet_a0.0001_r1`, absolute12 / 4w / ME, book
+  `w04_vt10_rf3_cap1.0` — the highest validation net Sharpe of the 9,900 row ranking
+  (`results/_study_macro/validation_winner.json`).
+- **Ties matter here.** When the volatility overlay is off the leverage cap cannot
+  bind, so `cap1`/`2`/`3` are the same book and score identically. The ranking breaks
+  ties deterministically (candidate order, then a stable sort), with the alphabetical
+  book name deciding between otherwise equal candidates.
+- **Test window (2023-2025), descriptive only:** the selected draw is in
+  `results/_study_macro/draws/me/` with figures under `plots/me/{test,val}/`, and the
+  ME/QE side-by-side in `comparison/`. Per-year forecast quality is in
+  `metrics_forecast.txt` and `metrics_by_year.txt`; the AR(1) no-feature baseline is
+  carried as the last row of every comparison table.

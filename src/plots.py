@@ -42,7 +42,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from metrics import max_drawdown, oos_r2_by_period, perf_stats, used_years
+from metrics import max_drawdown, oos_r2_by_period, used_years
 
 # ---------------------------------------------------------------------------
 # style + colours (fixed, report-friendly)
@@ -124,23 +124,6 @@ def _date_axis(ax) -> None:
     """Year ticks on a date axis."""
     ax.xaxis.set_major_locator(mdates.YearLocator())
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
-
-
-def _stats_line(book: pd.DataFrame, ppy: int, overlay: str) -> str:
-    """Subtitle with the headline stats of one window's book."""
-    stats = perf_stats(book["net_ret"], ppy)
-    return (f"net Sharpe {stats['sharpe']:.3f} · maxDD {stats['max_drawdown']:.2%} · "
-            f"total {stats['total_return']:.2%} · ann ret {stats['ann_return']:.2%} · "
-            f"ann vol {stats['ann_vol']:.2%} · {overlay}")
-
-
-def _overlay_label(book: pd.DataFrame, params) -> str:
-    """Describe the volatility overlay and how often it actually scaled the book."""
-    if params.vol_target is None:
-        return "overlay off"
-    bound = int((book["vol_scale"] != 1.0).sum())
-    return (f"vol target {params.vol_target:.0%} cap {params.vol_target_cap:g} "
-            f"(scaled on {bound}/{len(book)} bars)")
 
 
 # ---------------------------------------------------------------------------

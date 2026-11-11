@@ -21,13 +21,14 @@ everywhere. The 2023-2025
 window is measured once, afterwards, for the ranking winner only.
 
 **Measured record:** the ranking CSV is `results/_study_<block>/validation_ranking.csv`
-and the winner is `results/_study_<block>/validation_winner.json`; the numbers are
-summarised in agents/validation_and_ablation.md §5. `HEADLINE_*` stays None until a
-winner passes the test-window gate — the ranking itself promotes nothing.
+and the winner is `results/_study_<block>/validation_winner.json`; the current draw of
+each winner is under `results/_study_<block>/draws/<arm>/`, and the state is summarised
+in agents/validation_and_ablation.md §5. Both blocks have been measured once on the
+test window; that measurement selects nothing.
 
 Earlier protocols (the 114-/144-grid runs and the
 pre-label-correction test draws) were removed on 2026-11-03 with their result
-artifacts; only their summary numbers survive in agents/current_state.md Steps 1-16.
+artifacts.
 
 Design lineage (this project):
     agents/feature_engineering.md   — implementation reference: inputs, 21-feature
@@ -40,8 +41,8 @@ Design lineage (this project):
 
 Rationale in one line: the sister project measured zero cross-sectional signal on
 9 highly-correlated sector ETFs because the median-subtracted label removes the shared
-trend; this project harvests that absolute trend instead — with a fitted model
-(ridge / elastic-net) on a walk-forward panel as the main implementation, and the
+trend; this project harvests that absolute trend instead — with a fitted elastic net
+on a walk-forward panel as the main implementation, and the
 classic MA / momentum rules kept as the documented reference.
 """
 
@@ -79,16 +80,17 @@ BENCHMARK = "SPY"                  # benchmark #1 (B&H); benchmark #2 = equal-we
 # ---------------------------------------------------------------------------
 # Feature panel: 20 features per (date, ticker). Labels are generated separately by
 # src/labels.py and joined by callers.
-# The 12-bar holding target reaches t+13, so the runnable panel ends 2025-09-26.
+# The 12-bar target reaches t+13, so it is unrevealed for the last 13 dates: those rows
+# keep NaN labels and are skipped by fitting and by the R² sum, so the panel itself is
+# not truncated (the test window runs to 2025-12-19).
 FEATURE_COUNT = 20                 # 18 base + 2 trend
 TREND_SIGNAL_COLUMNS = {"sma40": "trend_sma40_ratio", "mom52": "trend_mom52"}
 SIGNAL_SMA_WINDOW = 40             # weekly bars, ≈ 200-day MA (rule path)
 SIGNAL_MOM_LB = 52                 # weekly bars, ≈ 12-month momentum (rule path)
 # Rule path (trend book): configured trend feature value > 0 -> signal on
 # (pred = +1 / 0 / -1). Kept as the documented reference; the fitted model is the
-# main implementation. Measured as the naive baseline on 2019-2022 / 2023-2025 by
-# scripts/run_trend_baseline.py (results/trend_baseline; current_state Step 23,
-# validation_and_ablation.md §5.1c).
+# main implementation. Measured on 2019-2022 / 2023-2025 by
+# scripts/run_trend_baseline.py (results/trend_baseline/).
 
 # ML path (run_pipeline, mode: selection) — phase-1 hyperparameters.
 # 2026-11-09 grid revision (user request): remove separate Ridge/Lasso families
@@ -125,8 +127,9 @@ FREQ_LA_PAIRS = [("weekly", 1), ("weekly", 4), ("weekly", 12),
 REFIT_OPTIONS = ("ME", "QE")     # monthly / quarterly
 REFIT_TO_BARS = {"ME": 4, "QE": 12}
 # Label timing (feature_engineering.md §3): features at close t, enter at close t+1,
-# hold H bars; label = price[t+H+1] / price[t+1] - 1. The 12-week target reaches
-# t+13, so its final labelled date is 2025-09-26; benchmark bars run to 2025-12-31.
+# hold H bars; label = price[t+H+1] / price[t+1] - 1. The 12-week target reaches t+13,
+# so its final realised label is 2025-09-26; the panel and benchmark bars run to
+# 2025-12-19 (2025-12-26 for the raw micro feature file).
 
 # ---------------------------------------------------------------------------
 # 3. Position rules (per path)
@@ -179,7 +182,7 @@ TRAIN = ("2011-01-01", "2018-12-31")      # rolling 8y (~416 weeks) minus embarg
 # once per feature block, from the cached walk-forward predictions
 # (results/_study_<block>/predictions).
 VALIDATION = ("2019-01-01", "2022-12-31")
-TEST = ("2023-01-01", "2025-12-31")       # holdout; effective end 2025-09-26
+TEST = ("2023-01-01", "2025-12-31")       # holdout; the panel measures to 2025-12-19
                                           # under absolute12 (≈ 2025-11-21 under absolute4)
 SEED = DEFAULT_SEED                       # loaded from utils.config.DEFAULT_SEED —
                                           # never typed in the design reference; every

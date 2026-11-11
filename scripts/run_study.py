@@ -220,11 +220,6 @@ def init_run(panel: pd.DataFrame, benchmark_close: pd.Series) -> None:
     FEATURE_COLS = {name: feature_columns(name) for name in FEATURE_SETS}
 
 
-def plots_root_for(feature_set: str, study_dir: str | Path | None = None) -> Path:
-    """Root of a block's published figures: ``results/_study_<block>/plots``."""
-    return study_settings(feature_set, study_dir)["study_dir"] / "plots"
-
-
 def run_pipeline_no_outputs(settings: dict, config) -> dict:
     """Run one candidate through the pipeline without writing tables or figures.
 
@@ -514,11 +509,6 @@ def _feature_record(name: str, name_key: bool = False) -> dict:
 # draws — one test draw per refit arm, each with its own figures
 # ---------------------------------------------------------------------------
 
-def draws_dir() -> Path:
-    """Root of the study's run folders (``results/_study_<block>/draws``)."""
-    return STUDY_DIR / "draws"
-
-
 def plots_dir() -> Path:
     """Root of the study's published figures (``results/_study_<block>/plots``)."""
     return STUDY_DIR / "plots"
@@ -529,9 +519,9 @@ def arm_slug(refit: str) -> str:
     return refit.lower()
 
 
-def arm_plots_root(refit: str) -> Path:
+def arm_plots_root(refit: str, study_dir: Path | None = None) -> Path:
     """Where an arm's figures are published: ``plots/<arm>/{test,val}/``."""
-    return plots_dir() / arm_slug(refit)
+    return (study_dir or STUDY_DIR) / "plots" / arm_slug(refit)
 
 
 def _arm_winner_rows(refits: str | None,
@@ -588,7 +578,7 @@ def run_draw(refits: str | None = None, settings: dict | None = None) -> Path:
         results = run_pipeline(PANEL, block["feature_cols"], BENCHMARK_CLOSE,
                                config, test_start=TEST[0], test_end=TEST[1],
                                window_val=VAL_WINDOW_SLUG, out_dir=out_dir,
-                               plots_root=study_dir / "plots" / arm)
+                               plots_root=arm_plots_root(refit, study_dir))
         stats = perf_stats(results["portfolio"]["net_ret"], config.ppy)
         verdict = results["verdict"]
         arms.append({"arm": arm, "features": row["features"], "model": row["model"],
@@ -644,7 +634,7 @@ def run_test(settings: dict | None = None) -> None:
     book = {key: value for key, value in winner["book"].items() if key != "name"}
     config = _config(int(combo["look_ahead"]), combo["rebalance"], combo["refit"],
                      model["name"], book, feature_set)
-    figures = study_dir / "plots" / arm_slug(combo["refit"])
+    figures = arm_plots_root(combo["refit"], study_dir)
     out_dir = (study_dir / "draws" / arm_slug(combo["refit"])
                / run_tag(config, *TEST, window_val=VAL_WINDOW_SLUG))
     print(f"TEST draw [{feature_set}]: {model['name']} / {combo['target']} / "

@@ -13,9 +13,8 @@ Two rules are implemented and picked by ``portfolio.strategy``:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, fields
-from typing import Any
+from collections.abc import Callable
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -83,19 +82,6 @@ class ForecastVolParams:
         if self.vol_target_lev_fee < 0:
             raise ValueError("vol_target_lev_fee cannot be negative (annualized leverage fee)")
 
-    @classmethod
-    def from_mapping(cls, block: Mapping[str, Any] | None) -> ForecastVolParams:
-        """Build the settings from a YAML block, ignoring keys set to ``None``.
-
-        Raises:
-            ValueError: if the block contains a key this dataclass does not define.
-        """
-        block = dict(block or {})
-        unknown = set(block) - {item.name for item in fields(cls)}
-        if unknown:
-            raise ValueError(f"unknown forecast_vol_scaled setting(s): {sorted(unknown)}")
-        return cls(**{key: value for key, value in block.items() if value is not None})
-
 
 @dataclass(frozen=True)
 class TrendParams:
@@ -121,19 +107,6 @@ class TrendParams:
             )
         if self.cost_bps < 0:
             raise ValueError("cost_bps cannot be negative")
-
-    @classmethod
-    def from_mapping(cls, block: Mapping[str, Any] | None) -> TrendParams:
-        """Build the settings from a YAML block, ignoring keys set to ``None``.
-
-        Raises:
-            ValueError: if the block contains a key this dataclass does not define.
-        """
-        block = dict(block or {})
-        unknown = set(block) - {item.name for item in fields(cls)}
-        if unknown:
-            raise ValueError(f"unknown trend_long_flat setting(s): {sorted(unknown)}")
-        return cls(**{key: value for key, value in block.items() if value is not None})
 
 
 def moomoo_commission(trade_value_usd: float) -> float:

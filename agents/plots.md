@@ -12,10 +12,10 @@ suite — the single draw of the overall winner (`test`) and the per-refit-arm d
 
 ```
 results/_study_{micro,macro}/        # one tree per feature block
-  draws/<arm>/<run_tag>/               # arm = me | qe: tables, series/, plots/
+  draws/<arm>/<run_tag>/               # arm = me | qe: tables + series/
   plots/<arm>/{test,val}/              # 10 PNGs per window, no window prefix
     01_cumulative_returns.png          # ... 10_oos_r2_by_year.png
-  arm_comparison.txt                   # per-arm test results + which arm wins
+  arm_comparison.txt                   # after `draw` only: per-arm test results
 
 results/validation_comparison/
   cumulative_val_micro_macro_ar1.png    # report comparison: selected micro/macro,
@@ -46,7 +46,8 @@ results/validation_comparison/
 
 The mapping lives in `pipeline.report_phases_for` (`REPORT_TEST_WINDOW` /
 `REPORT_PHASES` in `src/pipeline.py`); the arm folder comes from the study CLI
-(`arm_plots_root(refit)`), which passes it as `plots_root`.
+(`arm_plots_root(refit, study_dir)`), which passes it as `plots_root`.
+
 ## Why two windows per run
 
 `run_pipeline` measures the book on the **test** window and selects the model on the
@@ -88,8 +89,10 @@ the cleaner validation-comparison format.
 Figures 01, 03 and 09 also carry the **AR(1) baseline** (grey dashed): a per-ticker
 one-lag regression of the forward return on the trailing return, fitted on the same
 split and traded with the same book, costs and cadence (`baselines.ar1_baseline`).
-It is a *figure-only* reference — it is deliberately kept out of `benchmarks`, so the
-success gate and `comparison.csv` are unaffected by it.
+It reaches the figures through `results["plot_benchmarks"]` /
+`results["val_plot_benchmarks"]`, not `benchmarks`, so the success gate and
+`comparison.csv` are unaffected by it (the study's `comparison/` tables do report it,
+as an extra row).
 
 ## Data recorded for plotting (portfolio.py)
 
@@ -107,14 +110,13 @@ These feed figures 04/06/07 and are also dumped to `series/`.
 ## Regeneration
 
 Plots are produced automatically on every final holdout run — **no flag, no second
-script** for the per-run suite. For the current reset experiment, do not run these
-commands until the validation-selected configuration is locked:
+script** for the per-run suite. Either stage writes them:
 
 ```bash
 python scripts/run_study.py draw     # per-arm draws -> draws/<arm>/ + plots/<arm>/{test,val}/
 python scripts/run_study.py test     # the overall winner -> same folders for its arm
-# or the equivalent single draw through the backtest CLI:
-python scripts/run_backtest.py --test-start 2023-01-01 --test-end 2025-12-31 --window-val 6y ...
+# or an ad-hoc window through the backtest CLI (ad-hoc spans publish no figures):
+python scripts/run_backtest.py --test-start 2023-01-01 --test-end 2025-12-31 --window-val 4y
 ```
 
 Re-running a draw overwrites that arm's `plots/<arm>/{test,val}/` with identical
