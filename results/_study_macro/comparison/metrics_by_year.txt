@@ -1,0 +1,33 @@
+macro - metrics by calendar year, per refit arm
+===============================================
+
+arm             window  year  sharpe   ann_return  ann_vol  max_drawdown  total_return  hit_rate  oos_r2 
+--------------  ------  ----  -------  ----------  -------  ------------  ------------  --------  -------
+ME              val     2019  2.3530   0.1490      0.0598   -0.0281       0.1490        0.7115    0.0803 
+ME              val     2020  1.5124   0.1852      0.1170   -0.0664       0.1852        0.6154    -0.0039
+ME              val     2021  2.0344   0.1895      0.0873   -0.0262       0.1935        0.6415    0.0595 
+ME              val     2022  0.0860   0.0015      0.1556   -0.1384       0.0015        0.4231    0.0053 
+ME              test    2023  0.3019   0.0215      0.0814   -0.0765       0.0215        0.5192    0.0355 
+ME              test    2024  1.3218   0.1076      0.0798   -0.0412       0.1076        0.5769    0.0616 
+ME              test    2025  1.2603   0.1052      0.0821   -0.0804       0.1031        0.6667    -      
+QE *            val     2019  3.5035   0.1572      0.0420   -0.0142       0.1572        0.6731    0.0470 
+QE *            val     2020  1.3434   0.2920      0.2066   -0.1404       0.2920        0.6154    0.0832 
+QE *            val     2021  1.9774   0.2116      0.0997   -0.0314       0.2161        0.6415    0.1644 
+QE *            val     2022  0.2563   0.0289      0.1612   -0.1166       0.0289        0.4615    -0.1117
+QE *            test    2023  0.9679   0.0970      0.1008   -0.0753       0.0970        0.5769    0.1299 
+QE *            test    2024  1.5788   0.1281      0.0783   -0.0302       0.1281        0.6154    0.1616 
+QE *            test    2025  1.7916   0.1906      0.1003   -0.0797       0.1866        0.6667    -      
+AR(1) baseline  val     2019  3.3641   0.1747      0.0483   -0.0123       0.1747        0.6923    0.1013 
+AR(1) baseline  val     2020  -0.0095  -0.0288     0.2333   -0.2444       -0.0288       0.5192    0.0838 
+AR(1) baseline  val     2021  0.6240   0.0356      0.0588   -0.0529       0.0363        0.6038    -0.0940
+AR(1) baseline  val     2022  -0.4919  -0.0802     0.1480   -0.1539       -0.0802       0.3654    -0.2383
+AR(1) baseline  test    2023  0.8010   0.0856      0.1101   -0.0745       0.0856        0.5192    0.2052 
+AR(1) baseline  test    2024  1.7476   0.1559      0.0851   -0.0347       0.1559        0.6346    0.2025 
+AR(1) baseline  test    2025  1.5264   0.1654      0.1040   -0.0954       0.1620        0.7059    -      
+
+one row per (arm, window, year); 2023-2025 are the test window, 2019-2022 the
+validation window that selected the arm.
+* = the arm selected on the validation window (QE); the test
+window is reported for both arms but selects nothing.
+AR(1) baseline = one-lag AR(1) on the trailing return, no features,
+traded with the selected arm's own book, costs and refit cadence.
