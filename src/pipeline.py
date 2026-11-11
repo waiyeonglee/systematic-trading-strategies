@@ -528,8 +528,8 @@ def run_parameters(results: dict, feature_cols: list[str]) -> dict:
         "seed": config.seed,
         "data": {"start_date": START_DATE, "end_date": END_DATE_INCLUSIVE},
         "features": {"frequency": config.freq,
-                     "use_fear_greed": any("fear_greed" in str(name)
-                                           for name in columns),
+                     "has_macro_fear_greed": any(str(name).endswith("__x__fear_greed")
+                                                 for name in columns),
                      "count": len(columns),
                      "columns": columns},
         "validation": {

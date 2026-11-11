@@ -2,10 +2,10 @@
 
 Semantics match the validated reference doc ``agents/feature_engineering.md``:
 every indicator lookback counts bars, so a 14-bar RSI is 14 weekly observations
-on weekly data. ``FEATURES`` is the raw inspection / legacy single-backtest list:
-17 asset-level columns plus the two market-wide helper columns
-``fear_greed_index`` and ``spy_return_1bar``. The current micro/macro study removes
-those market-wide columns from the firm block; see ``scripts/macro_panel.py``.
+on weekly data. ``FEATURES`` is the raw inspection feature list: 17 asset-level
+columns plus the market-wide helper column ``spy_return_1bar``. The current
+micro/macro study removes the market-wide column from the firm block; see
+``scripts/macro_panel.py``. Fear & Greed is only used as monthly macro state.
 """
 
 from __future__ import annotations
@@ -22,15 +22,15 @@ from labels import LABEL
 from utils.checks import require_columns
 from utils.config import CORE_ETFS, periods_per_year
 
-# Raw feature-frame columns. The last two are market-wide helpers, not part of the
-# current study's 19-column ``micro`` firm block.
+# Raw feature-frame columns. ``spy_return_1bar`` is a market-wide helper, not part of
+# the current study's 19-column ``micro`` firm block.
 FEATURES = [
     "return_1bar", "return_2bar", "return_3bar", "return_4bar",
     "return_12bar", "return_26bar", "return_52bar",
     "sma_ratio_4_26bar", "sma_ratio_12_52bar",
     "volatility_12bar", "volatility_26bar", "drawdown_12bar",
     "rsi_14bar", "macd", "macd_signal", "bollinger_position", "volume_change_4bar",
-    "fear_greed_index", "spy_return_1bar",
+    "spy_return_1bar",
 ]
 # Trend-following inputs: absolute, per-ticker, from past prices only. The rule
 # reads these as 0/1 signals (value > 0 -> signal on).
@@ -39,28 +39,21 @@ TREND_FEATURES = [
     "trend_mom52",         # trailing 52-bar (≈12-month) close return
 ]
 TREND_SIGNAL_COLUMNS = {"sma40": "trend_sma40_ratio", "mom52": "trend_mom52"}
-ALTERNATIVE_FEATURES = {"fear_greed": ("fear_greed_index",)}
 RETURN_PERIODS = (1, 2, 3, 4, 12, 26, 52)
 
 
-def feature_columns(use_fear_greed: bool = True) -> list[str]:
-    """Return the legacy single-backtest feature list.
+def feature_columns() -> list[str]:
+    """Return the raw feature list used by the single-panel feature builders.
 
     This helper is used by ``scripts/run_backtest.py`` and the inspection
-    ``features.csv`` path. The current joint study does not use this as its ``micro``
-    definition; it uses ``scripts.macro_panel.FIRM_COLUMNS`` instead, where
-    ``fear_greed_index`` and ``spy_return_1bar`` are excluded from the firm block.
-
-    Args:
-        use_fear_greed: include the Fear & Greed index feature.
+    ``features.csv`` path. The current joint study uses
+    ``scripts.macro_panel.FIRM_COLUMNS`` for its ``micro`` definition, where
+    ``spy_return_1bar`` is excluded from the firm block.
 
     Returns:
-        The subset of :data:`FEATURES` plus :data:`TREND_FEATURES` for the legacy
-        path. The trend features are always on.
+        :data:`FEATURES` plus :data:`TREND_FEATURES`. The trend features are always on.
     """
-    excluded = () if use_fear_greed else ALTERNATIVE_FEATURES["fear_greed"]
-    base = [name for name in FEATURES if name not in excluded]
-    return base + TREND_FEATURES
+    return FEATURES + TREND_FEATURES
 
 
 def trend_rule_signals(panel: pd.DataFrame, rule: str = "sma40",
@@ -102,20 +95,17 @@ def build_feature_frame(
     prices: dict[str, pd.DataFrame],
     frequency: str = "weekly",
     sectors: tuple[str, ...] = CORE_ETFS,
-    fear_greed_index: pd.Series | None = None,
     benchmark_prices: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Build one feature row per asset and bar.
 
-    Every indicator lookback counts bars. The Fear & Greed value and the SPY return
-    are aligned using information dated on or before each bar.
+    Every indicator lookback counts bars. The SPY return is aligned using information
+    dated on or before each bar.
 
     Args:
         prices: Ticker -> OHLCV frame (``Date`` index, OHLCV columns).
         frequency: ``"daily"`` or ``"weekly"``; sets the annualisation factor.
         sectors: Tickers to include, in order.
-        fear_greed_index: Dated Fear & Greed values (0-100), or ``None`` to leave the
-            column missing.
         benchmark_prices: Benchmark OHLCV frame used for the market-return feature.
 
     Returns:
@@ -126,12 +116,6 @@ def build_feature_frame(
         ValueError: if ``frequency`` is unsupported or no price series is supplied.
     """
     annualisation = periods_per_year(frequency)
-
-    if fear_greed_index is not None:
-        fear_greed_index = fear_greed_index.copy()
-        fear_greed_index.index = pd.to_datetime(fear_greed_index.index)
-        fear_greed_index = pd.to_numeric(fear_greed_index, errors="coerce")
-        fear_greed_index = fear_greed_index[~fear_greed_index.index.duplicated(keep="last")].sort_index()
 
     if benchmark_prices is not None:
         spy_close = benchmark_prices.sort_index()["Close"].astype(float)
@@ -181,10 +165,6 @@ def build_feature_frame(
             # Trend-following inputs: computed from past closes only.
             "trend_sma40_ratio": close / smoothed(close_values, 40) - 1,
             "trend_mom52": close.pct_change(52, fill_method=None),
-            "fear_greed_index": (
-                fear_greed_index.reindex(bars.index, method="ffill")
-                if fear_greed_index is not None else np.nan
-            ),
             "spy_return_1bar": (
                 spy_return.reindex(bars.index, method="ffill")
                 if spy_return is not None else np.nan

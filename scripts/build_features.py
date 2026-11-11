@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Build both the micro and the macro feature panels in one run.
 
-Reads ``data/raw/weekly/*.csv`` (16 tradables) plus SPY,
-``data/additional/fear-greed.csv`` and the Welch-Goyal workbook, computes the firm
-features + the forward-return labels, and writes:
+Reads ``data/raw/weekly/*.csv`` (16 tradables) plus SPY and the Welch-Goyal workbook,
+computes the firm features + the forward-return labels, and writes:
 
     data/features/<frequency>/features.csv                  (label rows kept, NaN allowed)
     data/features/<frequency>/feature_label_correlation.csv
@@ -17,12 +16,11 @@ firm features from the same frame. It is ~30 MB and git-ignored: the study rebui
 the panel in memory (:mod:`macro_panel`), so the CSV is an inspection artifact. Pass
 ``--no-macro`` to skip it.
 
-Defaults encode the project conventions (weekly bars, Fear & Greed on, H = 12 weeks).
+Defaults encode the project conventions (weekly bars, H = 12 weeks).
 The dataset is frozen at the fixed end date 2026-01-01 (see src/utils/config.py).
 
 Usage:
     python scripts/build_features.py
-    python scripts/build_features.py --no-fear-greed
     python scripts/build_features.py --horizon 4
     python scripts/build_features.py --no-macro            # features.csv only
 """
@@ -44,7 +42,7 @@ from features import (build_feature_frame, feature_columns, feature_label_correl
 from labels import MODEL_TARGETS, label_column, make_labels
 from utils.config import BENCHMARKS, TRADABLE_ETFS
 from utils.checks import require_columns
-from utils.paths import FEAR_GREED_PATH, FEATURES_DIR, raw_data_dir
+from utils.paths import FEATURES_DIR, raw_data_dir
 
 OHLCV = ["Open", "High", "Low", "Close", "Volume"]
 
@@ -62,17 +60,6 @@ def load_ohlcv(folder: Path, tickers: tuple[str, ...]) -> dict[str, pd.DataFrame
         require_columns(bars, OHLCV, str(path))
         prices[ticker] = bars[OHLCV].astype(float)
     return prices
-
-
-def load_fear_greed_index(path: Path = FEAR_GREED_PATH) -> pd.Series:
-    """Load the dated numeric Fear & Greed Index (0-100)."""
-    if not path.exists():
-        raise FileNotFoundError(f"missing Fear & Greed data: {path}")
-    data = pd.read_csv(path, parse_dates=["Date"])
-    require_columns(data, ["Date", "Fear Greed"], str(path))
-    data = data.drop_duplicates("Date", keep="last").sort_values("Date")
-    values = pd.to_numeric(data["Fear Greed"], errors="coerce")
-    return pd.Series(values.to_numpy(), index=pd.DatetimeIndex(data["Date"]), name="fear_greed_index")
 
 
 def write_macro_panel(out: Path) -> None:
@@ -99,8 +86,6 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--frequency", default="weekly", choices=("daily", "weekly"),
                         help="bar frequency of the raw CSVs (default: weekly)")
-    parser.add_argument("--no-fear-greed", action="store_true",
-                        help="omit the Fear & Greed index feature (20 features)")
     parser.add_argument("--horizon", type=int, default=12, choices=(1, 4, 12),
                         help="label holding horizon in bars (default: 12)")
     parser.add_argument("--no-macro", action="store_true",
@@ -111,19 +96,16 @@ def main() -> None:
     args = parser.parse_args()
 
     frequency = args.frequency
-    use_fear_greed = not args.no_fear_greed
     horizon = args.horizon
-    columns = feature_columns(use_fear_greed)
+    columns = feature_columns()
     target_col = MODEL_TARGETS[f"absolute{horizon}"]
     label_col = label_column(horizon)
 
-    fear_greed = load_fear_greed_index() if use_fear_greed else None
     raw_dir = raw_data_dir(frequency)
     prices = load_ohlcv(raw_dir, TRADABLE_ETFS)
     benchmark = load_ohlcv(raw_dir, BENCHMARKS)[BENCHMARKS[0]]
 
     features = build_feature_frame(prices, frequency=frequency, sectors=TRADABLE_ETFS,
-                                   fear_greed_index=fear_greed,
                                    benchmark_prices=benchmark)
     closes = pd.DataFrame(
         {ticker: prices[ticker]["Close"] for ticker in TRADABLE_ETFS}

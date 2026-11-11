@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Run the walk-forward model-selection backtest for this project.
 
-Reads the raw weekly CSVs (16 tradables + SPY) and the Fear & Greed index, builds the
-feature panel with the 1/4/12-bar forward-return labels, selects the grid point
-with the best validation net Sharpe and measures it once on the test window against
-SPY buy-and-hold and an equal-weight-16 benchmark (design §3 gate).
+Reads the raw weekly CSVs (16 tradables + SPY), builds the feature panel with the
+1/4/12-bar forward-return labels, selects the grid point with the best validation net
+Sharpe and measures it once on the test window against SPY buy-and-hold and an
+equal-weight-16 benchmark (design §3 gate).
 
 2026-11-09 grid revision (user request): Elastic Net only, with endpoints included
 so ``l1_ratio=0`` covers the Ridge-like case and ``l1_ratio=1`` covers the
@@ -46,14 +46,14 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts"))  # reuse the feature-build loa
 
 import pandas as pd
 
-from build_features import load_fear_greed_index, load_ohlcv
+from build_features import load_ohlcv
 from features import build_feature_frame, feature_columns
 from labels import MODEL_EMBARGO, MODEL_TARGETS, make_labels
 from models import specs_from_config
 from pipeline import PipelineConfig, run_pipeline, run_tag
 from portfolio import ForecastVolParams
 from utils.config import (BENCHMARKS, DEFAULT_SEED, TRADABLE_ETFS, seed_everything)
-from utils.paths import FEAR_GREED_PATH, RESULTS_DIR, raw_data_dir
+from utils.paths import RESULTS_DIR, raw_data_dir
 
 # Design grid (agents/model_design.py §2), revised 2026-11-09 (user request) to an
 # Elastic-Net-only grid with endpoints. The L1 side sits in the lower alpha range
@@ -87,35 +87,33 @@ REFIT_OPTIONS = ("ME", "QE")      # monthly / quarterly
 
 
 def build_panel() -> tuple[pd.DataFrame, pd.Series, list[str]]:
-    """Build the legacy single-backtest panel from the raw weekly CSVs.
+    """Build the single-backtest panel from the raw weekly CSVs.
 
     Returns:
         ``(panel, benchmark_close, feature_cols)`` where the panel is indexed by
-        ``(date, ticker)`` with the raw 21-feature list from ``src.features``,
+        ``(date, ticker)`` with the raw feature list from ``src.features``,
         ``fwd_ret`` (1-bar, earned by the book) and the 1/4/12-bar training labels.
         Rows without a realised label are dropped, so the panel ends at 2025-09-26
         (13-bar 12-week label tail, shared by all look-aheads). The joint
         micro/macro study builds its feature blocks in ``scripts/macro_panel.py``.
     """
-    fear_greed = load_fear_greed_index(FEAR_GREED_PATH)
     raw_dir = raw_data_dir("weekly")
     prices = load_ohlcv(raw_dir, TRADABLE_ETFS)
     benchmark = load_ohlcv(raw_dir, BENCHMARKS)[BENCHMARKS[0]]
 
     features = build_feature_frame(prices, frequency="weekly", sectors=TRADABLE_ETFS,
-                                   fear_greed_index=fear_greed,
                                    benchmark_prices=benchmark)
     close_wide = pd.DataFrame({ticker: prices[ticker]["Close"] for ticker in TRADABLE_ETFS}
                               ).sort_index()
     labels = make_labels(close_wide)
-    panel = (features[feature_columns(use_fear_greed=True)]
+    panel = (features[feature_columns()]
              .join(labels, how="inner")
              .dropna()          # drop the warmup rows with NaN features and the unlabelled tail
              .sort_index())
 
     benchmark_close = benchmark["Close"].astype(float).sort_index()
     benchmark_close.index = pd.to_datetime(benchmark_close.index)
-    return panel, benchmark_close, feature_columns(use_fear_greed=True)
+    return panel, benchmark_close, feature_columns()
 
 
 def default_config(horizon: int, vol_target: bool | float | None,

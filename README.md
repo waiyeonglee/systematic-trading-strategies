@@ -83,9 +83,8 @@ uv sync          # create .venv and install pinned dependencies (Python 3.13)
 ## Run
 
 ```bash
-python scripts/build_features.py                # weekly, fear-greed on, H=12
+python scripts/build_features.py                # weekly, H=12
                                                 # -> features.csv + features_macro.csv
-python scripts/build_features.py --no-fear-greed
 python scripts/build_features.py --horizon 4
 python scripts/build_features.py --no-macro     # skip the 114-column macro panel
 

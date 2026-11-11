@@ -71,18 +71,16 @@ TRADABLES = CORE_ETFS + CROSS_ASSET_ETFS       # 16 tradables
 BENCHMARK = "SPY"                  # benchmark #1 (B&H); benchmark #2 = equal-weight B&H
                                    # across all 16 tradables (EW-16)
 # Per-ticker start (feature_engineering.md §1): GLD 2004-11, DBC 2006-02,
-# UUP 2007-03, the others 2004-01. Fear & Greed (2011+) gates the runnable panel:
-# with use_fear_greed: true the NaN warmup rows are dropped, so the panel starts
-# 2011-01-07 (verified in the backtest output).
+# UUP 2007-03, the others 2004-01.
 
 # ---------------------------------------------------------------------------
 # 2. Features & labels (implemented in src/features.py, src/labels.py;
 #    full reference: agents/feature_engineering.md)
 # ---------------------------------------------------------------------------
-# Feature panel: 21 features per (date, ticker) with use_fear_greed: true (20
-# without). Labels are generated separately by src/labels.py and joined by callers.
+# Feature panel: 20 features per (date, ticker). Labels are generated separately by
+# src/labels.py and joined by callers.
 # The 12-bar holding target reaches t+13, so the runnable panel ends 2025-09-26.
-FEATURE_COUNT = 21                 # 19 base + 2 trend; fear-greed on
+FEATURE_COUNT = 20                 # 18 base + 2 trend
 TREND_SIGNAL_COLUMNS = {"sma40": "trend_sma40_ratio", "mom52": "trend_mom52"}
 SIGNAL_SMA_WINDOW = 40             # weekly bars, ≈ 200-day MA (rule path)
 SIGNAL_MOM_LB = 52                 # weekly bars, ≈ 12-month momentum (rule path)

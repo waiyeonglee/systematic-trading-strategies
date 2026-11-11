@@ -21,8 +21,7 @@ project state.
 
 ## Features And Labels
 
-- Base/non-macro runs use ETF technical features, `SPY` return, and the weekly
-  `fear_greed_index` feature directly.
+- Base/non-macro runs use ETF technical features and the `SPY` return helper.
 - Macro runs use 19 firm-level technical features interacted with six macro states:
   a constant, monthly Fear & Greed, `tbl`, `tms`, `dfy`, and `dfr`.
 - Macro state variables are lagged by one month before being joined to weekly rows to

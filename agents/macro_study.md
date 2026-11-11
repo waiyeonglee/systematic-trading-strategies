@@ -55,9 +55,8 @@ Verified on the built panel (`macro_state(..., lag_months=1)`):
 
 ## 3. Features — 19 x (5 macro + const) = 114
 
-- **Firm block (19):** the price/volume features (the feature panel with the two
-  market-wide columns `fear_greed_index` and `spy_return_1bar` removed, since those
-  become macro state instead) plus the two trend inputs (`trend_sma40_ratio`,
+- **Firm block (19):** the price/volume features (the feature panel with
+  `spy_return_1bar` removed) plus the two trend inputs (`trend_sma40_ratio`,
   `trend_mom52`) — 17 price/volume + 2 trend, asserted in `macro_panel.FIRM_COLUMNS`.
 - **Macro block (6):** `const`, `fear_greed`, `tbl`, `tms`, `dfy`, `dfr`.
 - **Interaction:** Kronecker product, column names `<firm>__x__<macro>`; the `const`
