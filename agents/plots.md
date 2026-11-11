@@ -80,10 +80,10 @@ cache).
 | 09 | `annual_returns` | calendar-year net returns, strategy vs benchmarks + **AR(1) baseline** | year-by-year consistency (vs the OOS R² by year) |
 | 10 | `oos_r2_by_year` | forecast OOS R² per calendar year | the model-quality view behind the book — shows whether signal decayed |
 
-Every PNG is self-contained for a report: header = model + window dates,
-subtitle = net Sharpe / maxDD / total / ann ret / ann vol, the volatility overlay as
-configured and how many bars it actually scaled (e.g. `vol target 20% cap 1 (scaled
-on 4/313 bars)`), plus the run tag.
+Every PNG is self-contained for a report: the visible header is model + window dates.
+The old grey top subtitle with net Sharpe / maxDD / total / ann ret / ann vol,
+volatility overlay details and run tag has been removed so the per-run suite matches
+the cleaner validation-comparison format.
 
 Figures 01, 03 and 09 also carry the **AR(1) baseline** (grey dashed): a per-ticker
 one-lag regression of the forward return on the trailing return, fitted on the same

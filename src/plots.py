@@ -406,8 +406,6 @@ def plot_run(results: dict, out_dir: Path) -> Path:
     out = Path(out_dir) / "plots"
     out.mkdir(parents=True, exist_ok=True)
     selected = results["selected"]
-    run_tag = results["run_tag"]
-    params = results["config"].forecast_vol
     steps = (
         ("01_cumulative_returns", _plot_cumulative_returns),
         ("02_gross_vs_net", _plot_gross_vs_net),
@@ -419,15 +417,11 @@ def plot_run(results: dict, out_dir: Path) -> Path:
         ("08_holdings_counts", _plot_holdings_counts),
         ("09_annual_returns", _plot_annual_returns),
     )
-    for window, book, preds, benchmarks, ppy in _figure_plan(results):
+    for window, book, preds, benchmarks, _ppy in _figure_plan(results):
         header = (f"{selected} · {window} window "
                   f"{book.index.min().date()} → {book.index.max().date()}")
-        # two-line subtitle: headline stats first, run tag second (a single long
-        # line would clip at the figure edges)
-        subtitle = (f"{_stats_line(book, ppy, _overlay_label(book, params))}"
-                    f"\nrun {run_tag}")
         for stem, draw in steps:
-            draw(book, benchmarks, out / f"{window}_{stem}.png", header, subtitle)
+            draw(book, benchmarks, out / f"{window}_{stem}.png", header, "")
         _plot_oos_r2_by_year(preds, results["config"].target_col,
-                             out / f"{window}_10_oos_r2_by_year.png", header, subtitle)
+                             out / f"{window}_10_oos_r2_by_year.png", header, "")
     return out
