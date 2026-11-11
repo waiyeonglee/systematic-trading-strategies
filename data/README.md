@@ -88,8 +88,8 @@ Empirical Performance of Equity Premium Prediction*, Review of Financial Studies
 
 `dfr` is why the workbook is needed — it has no FRED equivalent. The `ReadMe` sheet
 in the same file documents every column. Fifth macro variable, `fear_greed`, comes
-from `additional/fear-greed.csv` (month-end value). Bars dated in month `M` use the
-month `M - 1` values (1-month publication lag, no lookahead).
+from `additional/fear-greed.csv` (monthly average of daily values). Bars dated in
+month `M` use the month `M - 1` values (1-month publication lag, no lookahead).
 
 ## additional/fear-greed.csv
 

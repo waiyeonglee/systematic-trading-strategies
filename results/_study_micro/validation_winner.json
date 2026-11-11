@@ -55,14 +55,14 @@
     "lev_fee": 0.0
   },
   "metrics": {
-    "net_sharpe": 1.1813239932590573,
-    "gross_sharpe": 1.1808379039904338,
-    "max_drawdown": -0.1651302544953348,
-    "total_return": 0.8873081655876736,
-    "ann_return": 0.17119915183410472,
-    "ann_vol": 0.14255931019180773,
+    "net_sharpe": 1.1813239932590631,
+    "gross_sharpe": 1.1808379039904389,
+    "max_drawdown": -0.16513025449533447,
+    "total_return": 0.8873081655876791,
+    "ann_return": 0.1711991518341056,
+    "ann_vol": 0.14255931019180756,
     "hit_rate": 0.6076555023923444,
-    "avg_turnover": 0.06083023522489874
+    "avg_turnover": 0.0608302352248988
   },
   "cache": "results/_study_micro/predictions/2019-01-01_2022-12-31/weekly_la4_refitME/enet_a0.001_r1.npz",
   "window_train_bars": 416,

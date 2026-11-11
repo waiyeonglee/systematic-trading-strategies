@@ -41,36 +41,36 @@
     "scored": 9900
   },
   "model": {
-    "name": "enet_a0.01_r1",
+    "name": "enet_a0.0001_r1",
     "family": "enet",
-    "alpha": 0.01,
+    "alpha": 0.0001,
     "l1_ratio": 1.0
   },
   "combo": {
     "target": "absolute12",
     "look_ahead": 12,
-    "rebalance": "weekly",
-    "refit": "QE"
+    "rebalance": "4w",
+    "refit": "ME"
   },
   "book": {
-    "name": "w48_vt20_rf3_cap1.0",
-    "vol_window": 48,
-    "vol_target": 0.2,
+    "name": "w24_vt10_rf3_cap1.0",
+    "vol_window": 24,
+    "vol_target": 0.1,
     "vol_rf": 0.03,
     "vol_cap": 1.0,
     "lev_fee": 0.0
   },
   "metrics": {
-    "net_sharpe": 1.1763112819456034,
-    "gross_sharpe": 1.1791740547151701,
-    "max_drawdown": -0.14040639925290554,
-    "total_return": 0.8707818097534803,
-    "ann_return": 0.16863906062213974,
-    "ann_vol": 0.14105694876044747,
-    "hit_rate": 0.5980861244019139,
-    "avg_turnover": 0.025090850898263448
+    "net_sharpe": 1.2910370621288194,
+    "gross_sharpe": 1.2907662392496537,
+    "max_drawdown": -0.09326636817442036,
+    "total_return": 0.6659150168403498,
+    "ann_return": 0.13539787161474282,
+    "ann_vol": 0.10247001804710769,
+    "hit_rate": 0.5741626794258373,
+    "avg_turnover": 0.16968582045314257
   },
-  "cache": "results/_study_macro/predictions/2019-01-01_2022-12-31/weekly_la12_refitQE/enet_a0.01_r1.npz",
+  "cache": "results/_study_macro/predictions/2019-01-01_2022-12-31/weekly_la12_refitME/enet_a0.0001_r1.npz",
   "window_train_bars": 416,
   "ranking": "results/_study_macro/validation_ranking.csv",
   "note": "promotion still requires the pre-registered ADR and the single test draw"

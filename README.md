@@ -2,7 +2,8 @@
 
 Standalone implementation of a cross-asset weekly trend-following strategy
 (DSA5205 Project 2). Universe: 16 tradable ETFs (9 US sectors + 7 diversifiers)
-with SPY as benchmark, plus the CNN Fear & Greed index as an alternative feature.
+with SPY as benchmark, plus macro state interactions including the CNN Fear & Greed
+index.
 
 ## Dataset (fixed window)
 
@@ -17,7 +18,7 @@ price-based features:
 
 | Variable | Meaning | Source |
 | --- | --- | --- |
-| `fear_greed` | CNN Fear & Greed index (0-100), month-end | `data/additional/fear-greed.csv` (committed) |
+| `fear_greed` | CNN Fear & Greed index (0-100), monthly average | `data/additional/fear-greed.csv` (committed) |
 | `tbl` | 3-month T-bill rate | `data/raw/Data2025.xlsx`, sheet `Monthly` |
 | `tms` | term spread, `lty - tbl` | same workbook |
 | `dfy` | default yield spread, `BAA - AAA` | same workbook |

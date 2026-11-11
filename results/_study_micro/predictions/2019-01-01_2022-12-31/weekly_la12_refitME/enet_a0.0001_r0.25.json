@@ -6,7 +6,7 @@
   "l1_ratio": 0.25,
   "target_col": "fwd_ret_12bar",
   "features": "micro",
-  "rebalance": "weekly",
+  "rebalance": "4w",
   "refit_every": "ME",
   "window_train_bars": 416,
   "embargo": 12,
@@ -14,6 +14,6 @@
   "eval_start": "2019-01-01",
   "eval_end": "2022-12-31",
   "bars": null,
-  "panel": "2011-02-04..2025-09-26|12240|16",
+  "panel": "2011-02-04..2025-12-19|12432|16",
   "format": "npz/float32"
 }

@@ -2,7 +2,7 @@
 
 Five monthly state variables feed the macro feature block:
 
-    fear_greed  CNN Fear & Greed index (0-100), month-end value
+    fear_greed  CNN Fear & Greed index (0-100), monthly average
     tbl         3-month T-bill rate (decimal)
     tms         term spread, ``lty - tbl`` (long govt yield - T-bill)
     dfy         default yield spread, ``BAA - AAA``
@@ -14,7 +14,7 @@ predictor-data page <https://sites.google.com/view/agoyal145>; ``fear_greed`` co
 from the local daily CSV. The workbook's ``ReadMe`` sheet defines ``tms``, ``dfy`` and
 ``dfr`` as the derived columns used here, so the workbook values are taken as-is.
 
-Timing (no lookahead): a bar dated in month ``M`` uses the month-end value of month
+Timing (no lookahead): a bar dated in month ``M`` uses the monthly value of month
 ``M - 1``. The month-``M`` observation is only published after that month closes, so
 using it on a bar inside month ``M`` would leak future information.
 The interaction block is the Kronecker product of ``FIRM_COLUMNS`` with
@@ -33,7 +33,7 @@ MACRO_COLUMNS = ("fear_greed", "tbl", "tms", "dfy", "dfr")
 # Welch-Goyal "PredictorData" workbook, monthly sheet through 2025-12.
 PREDICTOR_PATH = RAW_DIR / "Data2025.xlsx"
 
-# Publication lag in months: bar in month M uses the month-end value of M - LAG_MONTHS.
+# Publication lag in months: bar in month M uses the monthly value of M - LAG_MONTHS.
 LAG_MONTHS = 1
 
 
@@ -43,17 +43,17 @@ def _month_end(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
 
 
 def load_fear_greed_monthly(path=FEAR_GREED_PATH) -> pd.Series:
-    """Month-end Fear & Greed value (last daily observation of each month).
+    """Monthly average Fear & Greed value.
 
     Args:
         path: Daily Fear & Greed CSV (``Date,Fear Greed,Rating``).
 
     Returns:
-        Series of the 0-100 index indexed by month end.
+        Series of the average 0-100 index per calendar month, indexed by month end.
     """
     daily = (pd.read_csv(path, usecols=["Date", "Fear Greed"], parse_dates=["Date"])
              .set_index("Date")["Fear Greed"])
-    monthly = daily.resample("ME").last()
+    monthly = daily.resample("ME").mean()
     return monthly.rename("fear_greed")
 
 
@@ -90,7 +90,7 @@ def macro_state(dates, monthly: pd.DataFrame | None = None,
                 lag_months: int = LAG_MONTHS) -> pd.DataFrame:
     """Macro state per bar date, lagged so nothing is used before it is published.
 
-    The month-end value of month ``M`` becomes available the next day; with
+    The monthly value of month ``M`` becomes available the next day; with
     ``lag_months=1`` a bar in month ``M`` therefore gets the month ``M - 1`` value, and
     a bar dated on a month end gets that month's predecessor (never same-day data).
     ``lag_months=0`` allows a bar on the last day of a month to use that month's value.

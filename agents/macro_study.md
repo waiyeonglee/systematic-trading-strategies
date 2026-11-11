@@ -24,7 +24,7 @@ RFS 21(4), 1455–1508). `fear_greed` comes from the project's local CNN index C
 | `tms` | same workbook, column `tms` (**= `lty - tbl`**, long govt yield - T-bill) | 1871-01 .. 2025-12 |
 | `dfy` | same workbook, column `dfy` (**= `BAA - AAA`**) | 1871-01 .. 2025-12 |
 | `dfr` | same workbook, column `dfr` (**= `corpr - ltr`**) | 1926-01 .. 2025-12 |
-| `fear_greed` | `data/additional/fear-greed.csv`, month-end (last daily value) | 2011-01 .. 2025-12 |
+| `fear_greed` | `data/additional/fear-greed.csv`, monthly average of daily values | 2011-01 .. 2025-12 |
 
 Verified before the first run: the `Monthly` sheet reaches **2025-12**, every macro
 column is non-null from 2011 on, and the workbook `ReadMe` defines `tms` / `dfy` /

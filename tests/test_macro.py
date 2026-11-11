@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from macro import (MACRO_COLUMNS, PREDICTOR_PATH, interaction_columns, kron_features,
-                   load_macro_monthly, macro_state)
+                   load_fear_greed_monthly, load_macro_monthly, macro_state)
 
 
 def _monthly() -> pd.DataFrame:
@@ -15,6 +15,22 @@ def _monthly() -> pd.DataFrame:
     values = {column: [10.0, 20.0, 30.0] for column in MACRO_COLUMNS}
     values["tbl"] = [0.01, 0.02, 0.03]
     return pd.DataFrame(values, index=index)
+
+
+def test_fear_greed_monthly_uses_average(tmp_path):
+    path = tmp_path / "fear-greed.csv"
+    path.write_text(
+        "Date,Fear Greed,Rating\n"
+        "2020-01-01,10,Fear\n"
+        "2020-01-31,70,Greed\n"
+        "2020-02-03,20,Fear\n"
+        "2020-02-28,40,Neutral\n"
+    )
+
+    monthly = load_fear_greed_monthly(path)
+
+    assert monthly.loc["2020-01-31"] == pytest.approx(40.0)
+    assert monthly.loc["2020-02-29"] == pytest.approx(30.0)
 
 
 def test_macro_state_uses_previous_month_end():
