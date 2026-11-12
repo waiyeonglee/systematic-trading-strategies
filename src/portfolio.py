@@ -303,8 +303,8 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
     With ``params.vol_target`` set, the target weights are additionally scaled at every
     rebalance by :func:`_vol_target_scale`. The difference between the scaled gross and
     100% sits in a cash sleeve earning ``vol_target_rf``; with the default cap 1.0 the
-    overlay only ever de-risks. ``apply_vol_target=False`` (used for model selection on
-    the validation window) reproduces the plain ADR-07 book exactly.
+    overlay only ever de-risks. ``apply_vol_target=False`` reproduces the plain ADR-07
+    book exactly.
 
     The simulation is a numpy state machine over the ``(date, ticker)`` matrices (the
     weights path is a drift recurrence, so only the bars need a loop); everything that
@@ -318,8 +318,11 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
         params: Volatility, rebalance cadence, broker, cost and vol-target settings.
         initial_capital_usd: Starting equity; the broker minimums are absolute dollars.
         ppy: Periods per year, used to annualize the book's realized volatility.
-        apply_vol_target: Whether the vol-target overlay is applied. Selection scoring on
-            the validation window passes ``False``; the traded test book uses ``True``.
+        apply_vol_target: Whether the vol-target overlay may be applied at all. Two
+            callers differ: :func:`pipeline.select_model` passes ``False`` while ranking
+            models (the plain ADR-07 book), and ``study_worker`` passes ``True`` while
+            ranking books, where the ``vtoff`` grid level instead sets
+            ``params.vol_target = None``.
         vol_history: Optional earlier out-of-sample prediction panel used only to seed
             forecast volatility. Its returns are never traded or included in this book.
         forecast_vol: Optional precomputed :func:`forecast_vol_frame` output, so a study
