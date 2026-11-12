@@ -6,7 +6,7 @@
   "l1_ratio": 0.25,
   "target_col": "fwd_ret_12bar",
   "features": "micro",
-  "rebalance": "4w",
+  "rebalance": "weekly",
   "refit_every": "ME",
   "window_train_bars": 416,
   "embargo": 12,
