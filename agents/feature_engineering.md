@@ -52,13 +52,11 @@ frame, not the current study's `micro` model input set.
 ### Market-wide helper
 - `spy_return_1bar` — SPY `Close.pct_change(1)`, forward-filled onto the bar date
 
-### Trend-following inputs (always on; the rule's signals)
+### Trend-following inputs (always on; model features)
 - `trend_sma40_ratio` = close / SMA(40) − 1 (≈ the classic 200-day MA rule)
 - `trend_mom52` = `close.pct_change(52)` (trailing 52-bar ≈ 12-month return)
 
-`TREND_SIGNAL_COLUMNS = {"sma40": "trend_sma40_ratio", "mom52": "trend_mom52"}`;
-the rule thresholds the configured one at **value > 0 → signal on**
-(pred = +1 / 0 / −1).
+These are inputs to the ML model; they are not traded as a standalone rule.
 
 Current study feature blocks (`scripts/macro_panel.py`):
 
@@ -118,9 +116,6 @@ every split, including the test window.
 
 ## 5. Consumers
 
-- **Rule path**: reads the configured trend feature (`trend_sma40_ratio` default /
-  `trend_mom52`) as a 0/1 signal; portfolio built on `pred`, `fwd_ret`,
-  `return_1bar` (realized-vol sizing). See `scripts/run_trend_baseline.py`.
 - **ML path** (mode `selection`): trains an elastic net on the feature columns against
   the configured target (default `fwd_ret_12bar`); `fwd_ret` sizes and marks the
   forecast-vol book; `return_1bar` feeds realized volatility.

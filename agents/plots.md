@@ -96,7 +96,7 @@ as an extra row).
 
 ## Data recorded for plotting (portfolio.py)
 
-`build_forecast_vol_portfolio` / `build_trend_portfolio` now attach two
+`build_forecast_vol_portfolio` now attaches two
 per-date, per-ticker frames to the book (`object.__setattr__`, so they never
 collide with column access):
 

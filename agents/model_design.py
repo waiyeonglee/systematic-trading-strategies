@@ -84,13 +84,8 @@ BENCHMARK = "SPY"                  # benchmark #1 (B&H); benchmark #2 = equal-we
 # keep NaN labels and are skipped by fitting and by the R² sum, so the panel itself is
 # not truncated (the test window runs to 2025-12-19).
 FEATURE_COUNT = 20                 # 18 base + 2 trend
-TREND_SIGNAL_COLUMNS = {"sma40": "trend_sma40_ratio", "mom52": "trend_mom52"}
-SIGNAL_SMA_WINDOW = 40             # weekly bars, ≈ 200-day MA (rule path)
-SIGNAL_MOM_LB = 52                 # weekly bars, ≈ 12-month momentum (rule path)
-# Rule path (trend book): configured trend feature value > 0 -> signal on
-# (pred = +1 / 0 / -1). Kept as the documented reference; the fitted model is the
-# main implementation. Measured on 2019-2022 / 2023-2025 by
-# scripts/run_trend_baseline.py (results/trend_baseline/).
+# trend_sma40_ratio uses a 40-week SMA (≈ 200-day MA); trend_mom52 a 52-bar
+# (≈ 12-month) trailing return. Both are ML model features, not traded rules.
 
 # ML path (run_pipeline, mode: selection) — phase-1 hyperparameters.
 # 2026-11-09 grid revision (user request): remove separate Ridge/Lasso families

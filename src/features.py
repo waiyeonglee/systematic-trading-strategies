@@ -32,13 +32,12 @@ FEATURES = [
     "rsi_14bar", "macd", "macd_signal", "bollinger_position", "volume_change_4bar",
     "spy_return_1bar",
 ]
-# Trend-following inputs: absolute, per-ticker, from past prices only. The rule
-# reads these as 0/1 signals (value > 0 -> signal on).
+# Trend-following inputs: absolute, per-ticker, from past prices only. They are
+# model features in the 19-column firm block, not a standalone traded rule.
 TREND_FEATURES = [
     "trend_sma40_ratio",   # close / SMA(40 weekly bars) - 1  (≈ the 200-day MA rule)
     "trend_mom52",         # trailing 52-bar (≈12-month) close return
 ]
-TREND_SIGNAL_COLUMNS = {"sma40": "trend_sma40_ratio", "mom52": "trend_mom52"}
 RETURN_PERIODS = (1, 2, 3, 4, 12, 26, 52)
 
 
@@ -54,41 +53,6 @@ def feature_columns() -> list[str]:
         :data:`FEATURES` plus :data:`TREND_FEATURES`. The trend features are always on.
     """
     return FEATURES + TREND_FEATURES
-
-
-def trend_rule_signals(panel: pd.DataFrame, rule: str = "sma40",
-                       shorting: bool = False) -> pd.DataFrame:
-    """Turn a trend feature into the signed rule signal the trend book trades.
-
-    This is the rule path's decision step (design §3): the configured trend
-    feature's value at bar ``t`` above zero means "long", otherwise "flat" (or
-    "short" when ``shorting``). There is no fitted model and no estimation window,
-    so the signal exists at every dated row and the book's one-bar execution lag is
-    the only delay.
-
-    Args:
-        panel: Feature panel indexed by ``(date, ticker)``, e.g. from
-            ``scripts/run_backtest.build_panel``.
-        rule: ``"sma40"`` (``close / SMA(40 weekly bars) - 1``, ≈ the 200-day MA
-            rule) or ``"mom52"`` (trailing 52-bar return, ≈ 12-month momentum).
-        shorting: off-signal becomes ``-1`` (for ``trend_long_short``) instead of
-            ``0`` (for ``trend_long_flat``, the documented reference).
-
-    Returns:
-        Copy of ``panel`` with ``pred`` = +1.0 on-signal / -1.0 or 0.0 off-signal.
-
-    Raises:
-        ValueError: if ``rule`` is unknown or the panel lacks the trend column.
-    """
-    if rule not in TREND_SIGNAL_COLUMNS:
-        raise ValueError(f"unknown trend rule {rule!r}; use one of "
-                         f"{sorted(TREND_SIGNAL_COLUMNS)}")
-    column = TREND_SIGNAL_COLUMNS[rule]
-    require_columns(panel, [column], "trend panel")
-    off = -1.0 if shorting else 0.0
-    out = panel.copy()
-    out["pred"] = np.where(panel[column] > 0, 1.0, off)
-    return out
 
 
 def build_feature_frame(

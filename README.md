@@ -27,8 +27,7 @@ python scripts/run_pipeline_study.py both
 # 4. ME vs QE arm comparison (+ AR(1) baseline) -> results/_study_<block>/comparison/
 python scripts/compare_arms.py both
 
-# 5. standalone baselines on validation/test windows
-python scripts/run_trend_baseline.py               # SMA40 / MOM52 -> results/trend_baseline/
+# 5. standalone baseline on validation/test windows
 python scripts/run_forecast_baseline.py --horizon 4  # AR(1) forecasts + traded book -> results/forecast_baseline/
 
 ```
@@ -87,8 +86,6 @@ scripts/run_pipeline_study.py  # END TO END: cache -> rank -> draw -> plots
 scripts/compare_arms.py      # ME vs QE side-by-side figures + metric txt (validation & test)
                              #   python scripts/compare_arms.py micro|macro|both
 scripts/run_backtest.py      # single walk-forward backtest / test draw (grid or pinned spec)
-scripts/run_trend_baseline.py  # rule-based baseline: SMA40 / MOM52 long/flat on val + test
-                             # -> results/trend_baseline/
 scripts/run_forecast_baseline.py  # AR(1) baseline: forecasts + traded book, per window
                              # -> results/forecast_baseline/ar1_h<H>/
 src/                         # labels.py, features.py, macro.py, models.py, splits.py,
@@ -100,7 +97,6 @@ data/                        # raw weekly OHLCV + fear-greed + derived features
 results/                     # run tables per tag + _study_<block>/ summaries and the prediction
                              # cache (committed, ~22 MB npz); study draws (tables, series)
                              # and figures live under results/_study_<block>/draws|plots/<arm>/;
-                             # results/trend_baseline/ holds the rule-path measurement;
                              # results/forecast_baseline/ holds the AR(1) forecast metrics,
                              # its traded book, and the per-year breakdown
 ```
@@ -185,11 +181,6 @@ python scripts/run_pipeline_study.py macro --jobs 4
 #       the last row of every table and a grey dashed line in every figure)
 python scripts/compare_arms.py both             # both blocks
 python scripts/compare_arms.py macro            # one block only
-
-# final-holdout baseline only after selection lock: SMA40 / MOM52 long/flat, same book
-# settings and windows as the study; writes results/trend_baseline/<rule>/{val,test}/
-python scripts/run_trend_baseline.py
-python scripts/run_trend_baseline.py --rule sma40
 
 # AR(1) baseline: forecasts (OOS R² vs zero and vs the historical mean) plus a traded
 # book on the study's own cadence, so it is comparable on Sharpe and drawdown.

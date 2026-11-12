@@ -1,14 +1,10 @@
-"""Portfolio construction: predicted returns / trend signals in, holdings and returns out.
+"""Portfolio construction: predicted returns in, holdings and returns out.
 
-Two rules are implemented and picked by ``portfolio.strategy``:
-
-* ``forecast_vol_scaled`` divides every predicted return by its own forecast standard
-  deviation, normalises the signals to a gross exposure of 1.0 and trades them long and
-  short (Equation 15 of Chinco, Clark-Joseph & Ye, 2019). Each rebalance is only executed
-  when its net expected gain beats its total trading cost.
-* ``trend_long_flat`` longs every asset whose trend rule is on, weights them by inverse
-  realized volatility to a gross exposure of 1.0, holds cash when nothing is on-signal
-  and rebalances on a fixed cadence with no cost gate (documented reference).
+The single implemented rule ``forecast_vol_scaled`` divides every predicted return by
+its own forecast standard deviation, normalises the signals to a gross exposure of
+1.0 and trades them long and short (Equation 15 of Chinco, Clark-Joseph & Ye, 2019).
+Each rebalance is only executed when its net expected gain beats its total trading
+cost.
 """
 
 from __future__ import annotations
@@ -83,32 +79,6 @@ class ForecastVolParams:
             raise ValueError("vol_target_lev_fee cannot be negative (annualized leverage fee)")
 
 
-@dataclass(frozen=True)
-class TrendParams:
-    """Settings of the ``trend_long_flat`` rule (documented reference)."""
-
-    vol_window: int = 24
-    vol_min_periods: int = 20
-    rebalance: str = "4w"
-    broker: str = "moomoo"
-    cost_bps: float = 0.0
-
-    def __post_init__(self) -> None:
-        if self.rebalance not in ("daily", "weekly", "4w", "12w"):
-            raise ValueError(
-                f"rebalance must be 'daily', 'weekly', '4w' or '12w', got {self.rebalance!r}"
-            )
-        if self.broker != "moomoo":
-            raise ValueError(f"broker must be 'moomoo', got {self.broker!r}")
-        if self.vol_window < 2 or not 2 <= self.vol_min_periods <= self.vol_window:
-            raise ValueError(
-                "volatility needs 2 <= vol_min_periods <= vol_window, got "
-                f"vol_min_periods={self.vol_min_periods}, vol_window={self.vol_window}"
-            )
-        if self.cost_bps < 0:
-            raise ValueError("cost_bps cannot be negative")
-
-
 def moomoo_commission(trade_value_usd: float) -> float:
     """Commission for one Moomoo order: 0.03% of the trade with a USD 0.77 floor, plus 9% GST."""
     value = abs(float(trade_value_usd))
@@ -144,41 +114,6 @@ def historical_forecast_vol(predictions: pd.DataFrame,
     if not wide.index.is_unique:
         raise ValueError("prediction timestamps must be unique")
     return wide.shift(1).rolling(params.vol_window, min_periods=params.vol_min_periods).std(ddof=1)
-
-
-def historical_realized_vol(same_bar_returns: pd.DataFrame,
-                            params: TrendParams) -> pd.DataFrame:
-    """Rolling standard deviation of each asset's past same-bar returns (one-bar shift).
-
-    Raises:
-        ValueError: if the timestamps are not unique.
-    """
-    wide = same_bar_returns.sort_index().astype(float)
-    if not wide.index.is_unique:
-        raise ValueError("return timestamps must be unique")
-    return wide.shift(1).rolling(params.vol_window, min_periods=params.vol_min_periods).std(ddof=1)
-
-
-def trend_target_weights(signals: pd.Series,
-                         realized_vol: pd.Series) -> pd.Series:
-    """Long/flat target weights for one decision date.
-
-    Every asset with a valid trend signal and finite positive realized volatility is
-    weighted by ``1 / vol``; the weights are normalised so the absolute weights sum to
-    1.0 (100% gross, no leverage).
-
-    Only on-signal assets (``signals > 0.5``) get weight; off-signal assets are zero
-    and when nothing is on the target is all cash.
-    """
-    vol_floor = 1e-5
-    sig = pd.to_numeric(signals, errors="coerce").astype(float)
-    vols = pd.to_numeric(realized_vol.reindex(sig.index), errors="coerce").astype(float)
-    valid = sig.notna() & vols.notna() & np.isfinite(vols) & (vols > 0)
-    weights = pd.Series(0.0, index=sig.index)
-    on = valid & (sig > 0.5)
-    weights[on] = 1.0 / vols[on].clip(lower=vol_floor)
-    gross = weights.abs().sum()
-    return weights / gross if gross > 0 else weights
 
 
 def mark_to_market_weights(weights: pd.Series, returns: pd.Series) -> pd.Series:
@@ -481,120 +416,6 @@ def build_forecast_vol_portfolio(preds: pd.DataFrame, params: ForecastVolParams,
     return frame
 
 
-def build_trend_portfolio(preds: pd.DataFrame, params: TrendParams,
-                          initial_capital_usd: float = 100_000.0,
-                          vol_history: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Trade the trend rule, charging broker costs per executed order.
-
-    Same one-bar decision lag as the forecast-vol rule: on a rebalance bar ``d`` the
-    target weights are built from the rule signal dated ``d-1`` and from realized
-    volatility measured on returns dated strictly before ``d``; the book earns each
-    bar's ``fwd_ret``. Unlike the forecast-vol rule there is no cost gate: the 4-week
-    cadence keeps turnover low, so every scheduled rebalance executes and pays its costs.
-
-    Args:
-        preds: Panel with ``pred`` (the signed trend signal: -1 short / 0 flat / +1
-            long), ``fwd_ret`` and ``return_1bar`` (same-bar returns used to measure
-            realized volatility), indexed by ``(date, ticker)``.
-        params: Volatility window, rebalance cadence, broker and cost settings.
-        initial_capital_usd: Starting equity; the broker minimums are absolute dollars.
-        shorting: Whether negative signals may be shorted (long/short variant).
-        vol_history: Optional earlier panel whose ``return_1bar`` values seed realized
-            volatility. Its returns are never traded or included in this book.
-
-    Returns:
-        Frame indexed by date with ``gross_ret``, ``turnover``, ``cost``, ``net_ret``,
-        ``n_holdings``, ``holdings`` plus ``n_long``, ``n_short``, ``gross_exposure``,
-        ``net_exposure``, ``equity_usd`` and ``rebalanced``. The frame also carries the
-        ``weights_wide`` / ``orders_wide`` per-date, per-ticker attachments (same
-        convention as :func:`build_forecast_vol_portfolio`).
-
-    Raises:
-        ValueError: if the panel lacks ``pred``, ``fwd_ret`` or ``return_1bar``, the
-            starting equity is not positive, or the portfolio is wiped out.
-    """
-    if initial_capital_usd <= 0:
-        raise ValueError("initial_capital_usd must be positive")
-    missing = sorted({"pred", "fwd_ret", "return_1bar"} - set(preds.columns))
-    if missing:
-        raise ValueError(f"trend predictions panel is missing columns: {missing}")
-
-    signals = preds["pred"].unstack("ticker").sort_index()
-    returns = preds["fwd_ret"].unstack("ticker").reindex(signals.index)
-    same_bar = preds["return_1bar"].unstack("ticker").reindex(signals.index)
-    decisions = signals.shift(1)   # bar d trades on the signal dated bar d-1
-    if vol_history is not None and not vol_history.empty:
-        if "return_1bar" not in vol_history:
-            raise ValueError("vol_history must contain a 'return_1bar' column")
-        historical = vol_history["return_1bar"].unstack("ticker").sort_index()
-        if historical.index.intersection(signals.index).size:
-            raise ValueError("vol_history dates must precede portfolio dates")
-        vol_inputs = pd.concat([historical, same_bar]).sort_index()
-    else:
-        vol_inputs = same_bar
-    realized_vol = historical_realized_vol(vol_inputs, params).reindex(signals.index)
-    rebalances = set(rebalance_dates(signals.index, params.rebalance))
-
-    equity = initial_capital_usd
-    weights = pd.Series(0.0, index=signals.columns)
-    previous_date = None
-    rows = []
-    weight_rows: list[pd.Series] = []
-    order_rows: list[pd.Series] = []
-    for date in signals.index:
-        if previous_date is not None:
-            weights = mark_to_market_weights(weights, returns.loc[previous_date])
-        equity_before = equity
-
-        if date in rebalances:
-            target = trend_target_weights(decisions.loc[date], realized_vol.loc[date])
-            orders = orders_for_target(weights, target, equity_before).fillna(0.0)
-            costs = float(sum(order_cost_usd(value, params) for value in orders if value != 0))
-            weights = (weights.add(orders / equity_before, fill_value=0.0)
-                       .reindex(signals.columns, fill_value=0.0))
-        else:
-            orders = pd.Series(0.0, index=signals.columns)
-            costs = 0.0
-
-        gross = float((weights * returns.loc[date].fillna(0.0)).sum())
-        cost = costs / equity_before
-        net = gross - cost
-
-        equity = equity_before * (1.0 + net)
-        if equity <= 0:
-            raise ValueError(f"portfolio equity fell to {equity:.2f} USD on {date}")
-
-        held = weights[weights.abs() > 1e-12]
-        rows.append(dict(date=date, gross_ret=gross,
-                         turnover=float(orders.abs().sum()) / equity_before, cost=cost,
-                         net_ret=net, n_holdings=len(held),
-                         holdings=",".join(sorted(held.index)),
-                         n_long=int((held > 0).sum()), n_short=int((held < 0).sum()),
-                         gross_exposure=float(held.abs().sum()),
-                         net_exposure=float(held.sum()), equity_usd=equity,
-                         rebalanced=int(date in rebalances)))
-        previous_date = date
-        weight_rows.append(weights.copy())
-        order_rows.append(orders.copy())
-
-    frame = pd.DataFrame(rows).set_index("date")
-    weights_wide = pd.DataFrame(weight_rows, index=frame.index,
-                                columns=signals.columns).fillna(0.0)
-    orders_wide = pd.DataFrame(order_rows, index=frame.index,
-                               columns=signals.columns).fillna(0.0)
-    object.__setattr__(frame, "weights_wide", weights_wide)
-    object.__setattr__(frame, "orders_wide", orders_wide)
-    return frame
-
-
-def _trend_long_flat(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
-                     vol_history: pd.DataFrame | None = None,
-                     forecast_vol: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Long the on-signal assets, weighted by inverse realized volatility, else cash."""
-    return build_trend_portfolio(preds, config.trend, config.initial_capital_usd,
-                                 vol_history=vol_history)
-
-
 def _forecast_vol_scaled(preds: pd.DataFrame, config, *, apply_vol_target: bool = True,
                          vol_history: pd.DataFrame | None = None,
                          forecast_vol: pd.DataFrame | None = None) -> pd.DataFrame:
@@ -613,7 +434,6 @@ def _forecast_vol_scaled(preds: pd.DataFrame, config, *, apply_vol_target: bool 
 
 STRATEGIES: dict[str, Callable[..., pd.DataFrame]] = {
     "forecast_vol_scaled": _forecast_vol_scaled,
-    "trend_long_flat": _trend_long_flat,
 }
 
 STRATEGY_CHOICES = tuple(STRATEGIES)
@@ -641,8 +461,7 @@ def build_positions(preds: pd.DataFrame, config, strategy: str | None = None,
         config: Any object exposing ``strategy`` and that strategy's parameters.
         strategy: Rule to run; defaults to the configured one.
         apply_vol_target: Whether the vol-target overlay is applied to the forecast-vol
-            book (ignored by the trend strategies). Model selection on the validation
-            window passes ``False``.
+            book. Model selection on the validation window passes ``False``.
         vol_history: Optional earlier out-of-sample history used only to seed the
             strategy's rolling volatility estimate.
         forecast_vol: Optional precomputed rolling volatility (forecast-vol strategies

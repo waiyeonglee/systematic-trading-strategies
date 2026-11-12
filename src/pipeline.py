@@ -22,7 +22,7 @@ from metrics import (comparison_table, cumulative_return, equal_weight_universe,
                      oos_r2_by_period, perf_stats, period_stats, sharpe,
                      spy_buy_and_hold, strategy_report)
 from models import ModelSpec, walk_forward_predict
-from portfolio import ForecastVolParams, TrendParams, build_all_positions
+from portfolio import ForecastVolParams, build_all_positions
 from prediction_cache import warmup_frame
 from splits import build_splits, split_panel
 from utils.artifacts import save_nested, save_parameters, save_table
@@ -70,7 +70,6 @@ class PipelineConfig:
             column list itself is passed next to the config, and the tag keeps the
             prediction-cache provenance of the two blocks apart.
         forecast_vol: Settings of the ``forecast_vol_scaled`` book.
-        trend: Settings of the ``trend_long_flat`` book (documented reference).
     """
 
     freq: str = "weekly"
@@ -85,7 +84,6 @@ class PipelineConfig:
     target_col: str = TARGET_COL
     features: str = "micro"
     forecast_vol: ForecastVolParams = ForecastVolParams()
-    trend: TrendParams = TrendParams()
 
     @property
     def ppy(self) -> int:
@@ -104,24 +102,21 @@ def run_tag(config: PipelineConfig, test_start: str, test_end: str,
     ``weekly_fg_roll8y_val3y_qrefit_grid6_vt0.1c1rf3_2023-2025``.
     """
     parts = [config.freq, "fg"]
-    if config.strategy.startswith("trend"):
-        parts.append("trend")
+    parts.append(f"roll{duration_slug(config.window_train or 'all')}")
+    parts.append(f"val{duration_slug(window_val)}")
+    parts.append(config.features)
+    parts.append(REFIT_SLUGS.get(config.refit_every, config.refit_every.lower()))
+    if config.mode == "single" and len(config.grid) == 1:
+        parts.append(config.grid[0].name)
     else:
-        parts.append(f"roll{duration_slug(config.window_train or 'all')}")
-        parts.append(f"val{duration_slug(window_val)}")
-        parts.append(config.features)
-        parts.append(REFIT_SLUGS.get(config.refit_every, config.refit_every.lower()))
-        if config.mode == "single" and len(config.grid) == 1:
-            parts.append(config.grid[0].name)
-        else:
-            parts.append(f"grid{len(config.grid)}")
-        segment = _vol_target_segment(config.forecast_vol)
-        if segment:
-            parts.append(segment)
-        if config.forecast_vol.rebalance == "weekly":
-            parts.append("rweekly")
-        elif config.forecast_vol.rebalance == "12w":
-            parts.append("r12w")
+        parts.append(f"grid{len(config.grid)}")
+    segment = _vol_target_segment(config.forecast_vol)
+    if segment:
+        parts.append(segment)
+    if config.forecast_vol.rebalance == "weekly":
+        parts.append("rweekly")
+    elif config.forecast_vol.rebalance == "12w":
+        parts.append("r12w")
     parts.append(f"{str(test_start)[:4]}-{str(test_end)[:4]}")
     return "_".join(parts)
 
@@ -129,8 +124,7 @@ def run_tag(config: PipelineConfig, test_start: str, test_end: str,
 def _vol_warmup_predictions(history: pd.DataFrame, feature_cols: list[str],
                            spec: ModelSpec, config: PipelineConfig) -> pd.DataFrame:
     """Create trailing out-of-sample predictions to seed portfolio volatility only."""
-    params = config.trend if config.strategy.startswith("trend") else config.forecast_vol
-    return warmup_frame(history, feature_cols, config, spec, params.vol_window)
+    return warmup_frame(history, feature_cols, config, spec, config.forecast_vol.vol_window)
 
 
 def select_model(history: pd.DataFrame, val_df: pd.DataFrame,

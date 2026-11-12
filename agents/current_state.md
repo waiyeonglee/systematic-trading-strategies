@@ -66,7 +66,7 @@ their tables and figures are the current results.
   `w04_vt10_rf3_cap1.0`; macro `enet_a0.0001_r1`, absolute12 / 4w / ME, book
   `w04_vt10_rf3_cap1.0`.
 - Artefacts live under `results/_study_{micro,macro}/` (ranking, winner, draws,
-  figures, `comparison/`); standalone baselines under `results/trend_baseline/` and
+  figures, `comparison/`); the standalone AR(1) baseline under
   `results/forecast_baseline/`; the micro/macro validation comparison under
   `results/validation_comparison/`.
 - Cite report numbers only from these artefacts, and only after the command that wrote
